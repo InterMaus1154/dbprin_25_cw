@@ -1,4 +1,7 @@
-CREATE TABLE cities;
+CREATE TABLE cities; (
+    city_id SERIAL PRIMARY KEY,
+    city_name VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE suppliers;
 
