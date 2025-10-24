@@ -1,13 +1,35 @@
-CREATE TABLE cities; (
+CREATE TABLE cities (
     city_id SERIAL PRIMARY KEY,
     city_name VARCHAR(50) NOT NULL
 );
 
-CREATE TABLE suppliers;
+CREATE TABLE suppliers (
+    sup_id SERIAL PRIMARY KEY,
+    sup_name VARCHAR(100),
+    sup_contact_name VARCHAR(60),
+    sup_contact_phone CHAR(15),
+    sup_address_first VARCHAR(100),
+    sup_address_second VARCHAR(100),
+    sup_postcode CHAR(8),
+    sup_city INTEGER NOT NULL,
+    FOREIGN KEY (sup_city) REFERENCES cities(city_id) 
+    is_active BOOLEAN
+);
 
-CREATE TABLE part_categories;
+CREATE TABLE part_categories (
+    part_cat_id SERIAL PRIMARY KEY,
+    part_cat_name VARCHAR(50)
+);
 
-CREATE TABLE parts;
+CREATE TABLE parts (
+    part_id SERIAL PRIMARY KEY,
+    part_cat_id INTEGER NOT NULL,
+    part_name VARCHAR(100),
+    part_description TEXT,
+    part_price DECIMAL(10,2)
+    FOREIGN KEY (part_cat_id) 
+    REFERENCES part_categories(part_cat_id)
+);
 
 CREATE TABLE part_suppliers;
 
