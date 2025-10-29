@@ -191,8 +191,14 @@ CREATE TABLE staff_certifications (
     cert_level cert_level NOT NULL,
     cert_name VARCHAR(100) NOT NULL
 );
--- review the table on miro mark, unsure if its an intersection or not 
-CREATE TABLE branch_managers;
+ 
+CREATE TABLE branch_managers (
+        branch_man_id SERIAL PRIMARY KEY,
+    branch_id INT REFERENCES branches(branch_id) ON DELETE SET NULL,
+    staff_id INT REFERENCES staff(staff_id) ON DELETE SET NULL,
+    assigned_at DATE,
+    is_active BOOLEAN
+);
 
 
 CREATE TABLE roles (
@@ -237,24 +243,103 @@ CREATE TABLE invoices (
     inv_final DECIMAL(10,2) NOT NULL
 );
 
-CREATE TABLE installments;
+CREATE TYPE inst_status AS ENUM ('pending', 'paid', 'overdue', 'cancelled');
 
-CREATE TABLE refunds;
+CREATE TABLE installments (
+    inst_id SERIAL PRIMARY KEY,
+    inv_id INT REFERENCES invoices(inv_id),
+    inst_number SMALLINT NOT NULL,
+    inst_due_date DATE NOT NULL,
+    inst_paid_date DATE,
+    inst_status inst_status
 
-CREATE TABLE booking_services;
+);
 
-CREATE TABLE jobs;
+CREATE TABLE refunds (
+    refund_id SERIAL PRIMARY KEY,
+    inv_id INT REFERENCES invoices(inv_id),
+    refunded_by INT REFERENCES staff(staff_id),
+    refund_amount DECIMAL(10,2) NOT NULL,
+    refund_reason TEXT
+);
 
-CREATE TABLE additional_services;
+CREATE TABLE booking_services (
+    booking_serv_id SERIAL PRIMARY KEY,
+    booking_id INT REFERENCES bookings(booking_id),
+    serv_id INT REFERENCES services(serv_id)
+);
 
-CREATE TABLE branch_parts;
+CREATE TYPE work_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
 
-CREATE TABLE part_usage;
+CREATE TABLE jobs (
+    job_id SERIAL PRIMARY KEY,
+    staff_id INT REFERENCES staff(staff_id),
+    booking_serv_id INT REFERENCES booking_services(booking_serv_id),
+    bay_id INT REFERENCES bays(bay_id),
+    assigned_at DATE NOT NULL,
+    work_start TIMESTAMP,
+    work_end TIMESTAMP,
+    work_status work_status
+);
 
-CREATE TABLE part_transfers;
+CREATE TABLE additional_services (
+    job_id INT REFERENCES jobs(job_id),
+    serv_id INT REFERENCES services(serv_id),
+    note TEXT,
+    PRIMARY KEY (job_id, serv_id)
+);
 
-CREATE TABLE mot_results;
+CREATE TABLE branch_parts (
+    branch_id INT REFERENCES branches(branch_id),
+    part_id INT REFERENCES parts(part_id),
+    quantity SMALLINT,
+    PRIMARY KEY (branch_id, part_id)
+);
 
-CREATE TABLE customer_feedbacks;
+CREATE TABLE part_usage (
+    job_id INT REFERENCES jobs(job_id),
+    part_id INT REFERENCES parts(part_id),
+    quantity INT,
+    PRIMARY KEY (job_id, part_id)
+);
 
-CREATE TABLE feedback_replies;
+CREATE TABLE part_transfers (
+        transfer_id SERIAL PRIMARY KEY,
+    part_id INT REFERENCES parts(part_id),
+    from_branch_id INT REFERENCES branches(branch_id),
+    to_branch_id INT REFERENCES branches(branch_id),
+    requested_by INT REFERENCES staff(staff_id),
+    approved_by INT REFERENCES staff(staff_id),
+    quantity INT,
+    transfer_date DATE
+);
+
+CREATE TYPE mot_result_enum AS ENUM ('PASS', 'FAIL', 'ADVISORY');
+
+CREATE TABLE mot_results (
+     mot_res_id SERIAL PRIMARY KEY,
+    booking_id INT REFERENCES bookings(booking_id),
+    vec_id INT REFERENCES vehicles(vec_id),
+    staff_id INT REFERENCES staff(staff_id),
+    test_date DATE,
+    expiry_date DATE,
+    result mot_result_enum,
+    mileage_reading INT,
+    comments TEXT
+);
+
+CREATE TABLE customer_feedbacks (
+    cust_fb_id SERIAL PRIMARY KEY,
+    cust_id INT REFERENCES customers(cust_id),
+    booking_id INT REFERENCES bookings(booking_id),
+    cust_fb_content TEXT
+);
+
+CREATE TABLE feedback_replies (
+    reply_id SERIAL PRIMARY KEY,
+    cust_fb_id INT REFERENCES customer_feedback(cust_fb_id),
+    staff_id INT REFERENCES staff(staff_id),
+    cust_id INT REFERENCES customers(cust_id),
+    reply_to INT REFERENCES feedback_replies(reply_id),
+    reply_content TEXT
+);
