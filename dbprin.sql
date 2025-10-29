@@ -1,3 +1,17 @@
+-- put enum types at top due it causing errors if not
+CREATE TYPE pay_period AS ENUM ('weekly', 'monthly', 'yearly');
+CREATE TYPE discount_type AS ENUM ('percentage', 'fixed');
+CREATE TYPE emg_type AS ENUM ('family', 'friend', 'colleague', 'other');
+CREATE TYPE fuel_type AS ENUM ('petrol', 'diesel', 'electric', 'hybrid', 'other');
+CREATE TYPE bay_status AS ENUM ('available', 'occupied', 'maintenance', 'closed');
+CREATE TYPE schedule_day AS ENUM ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday');
+CREATE TYPE cert_level AS ENUM ('beginner', 'intermediate', 'advanced', 'expert');
+CREATE TYPE ins_status AS ENUM ('passed', 'failed', 'pending', 'in_progress');
+CREATE TYPE inst_status AS ENUM ('pending', 'paid', 'overdue', 'cancelled');
+CREATE TYPE work_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
+CREATE TYPE mot_result_enum AS ENUM ('PASS', 'FAIL', 'ADVISORY');
+
+
 CREATE TABLE cities (
     city_id SERIAL PRIMARY KEY,
     city_name VARCHAR(50) NOT NULL
@@ -12,8 +26,8 @@ CREATE TABLE suppliers (
     sup_address_second VARCHAR(100),
     sup_postcode CHAR(8),
     sup_city INTEGER NOT NULL,
-    FOREIGN KEY (sup_city) REFERENCES cities(city_id) 
-    is_active BOOLEAN
+    is_active BOOLEAN,
+    FOREIGN KEY (sup_city) REFERENCES cities(city_id)
 );
 
 CREATE TABLE part_categories (
@@ -26,9 +40,8 @@ CREATE TABLE parts (
     part_cat_id INTEGER NOT NULL,
     part_name VARCHAR(100),
     part_description TEXT,
-    part_price DECIMAL(10,2)
-    FOREIGN KEY (part_cat_id) 
-    REFERENCES part_categories(part_cat_id)
+    part_price DECIMAL(10,2),
+    FOREIGN KEY (part_cat_id) REFERENCES part_categories(part_cat_id)
 );
 
 CREATE TABLE part_suppliers (
@@ -45,7 +58,6 @@ CREATE TABLE packages (
     pkg_desc TEXT,
     is_active BOOLEAN
 );
-
 
 CREATE TABLE services (
     serv_id SERIAL PRIMARY KEY,
@@ -67,9 +79,7 @@ CREATE TABLE service_discounts (
     disc_from DATE NOT NULL,
     disc_to DATE NOT NULL,
     is_active BOOLEAN
-    )
-
-CREATE TYPE pay_period AS ENUM ('weekly', 'monthly', 'yearly');
+);
 
 CREATE TABLE memberships (
     mship_id SERIAL PRIMARY KEY,
@@ -79,8 +89,6 @@ CREATE TABLE memberships (
     mship_duration_days SMALLINT NOT NULL,
     mship_pay_period pay_period NOT NULL
 );
-
-CREATE TYPE discount_type AS ENUM ('percentage', 'fixed');
 
 CREATE TABLE membership_services (
     mship_id INT REFERENCES memberships(mship_id),
@@ -104,23 +112,19 @@ CREATE TABLE customers (
     cust_address_second VARCHAR(100),
     cust_city INT REFERENCES cities(city_id),
     cust_postcode CHAR(8)
-)
-
-CREATE TYPE emg_type AS ENUM ('family', 'friend', 'colleague', 'other');
+);
 
 CREATE TABLE emergency_contacts (
     emg_id SERIAL PRIMARY KEY,
     cust_id INT REFERENCES customers(cust_id),
     emg_type emg_type NOT NULL,
     emg_contact VARCHAR(200) NOT NULL
-)
+);
 
 CREATE TABLE vehicle_brands (
     vec_brand_id SERIAL PRIMARY KEY,
     vec_brand_name VARCHAR(50) NOT NULL    
 );
-
-CREATE TYPE fuel_type AS ENUM ('petrol', 'diesel', 'electric', 'hybrid', 'other');
 
 CREATE TABLE vehicles (
     vec_id SERIAL PRIMARY KEY,
@@ -144,8 +148,6 @@ CREATE TABLE branches (
     branch_postcode CHAR(8),
     branch_city INT REFERENCES cities(city_id)
 );
-
-CREATE TYPE bay_status AS ENUM ('available', 'occupied', 'maintenance', 'closed');
 
 CREATE TABLE bays (
     bay_id SERIAL PRIMARY KEY,
@@ -171,10 +173,6 @@ CREATE TABLE staff (
     hired_at DATE NOT NULL
 );
 
-CREATE TYPE schedule_day AS ENUM (
-    'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-);
-
 CREATE TABLE staff_schedule (
     schedule_id SERIAL PRIMARY KEY,
     staff_id INT REFERENCES staff(staff_id),
@@ -182,8 +180,6 @@ CREATE TABLE staff_schedule (
     schedule_start_time TIME NOT NULL,
     schedule_end_time TIME NOT NULL
 );
--- can change to something different if this dont sound right lol --
-CREATE TYPE cert_level AS ENUM ('beginner', 'intermediate', 'advanced', 'expert');
 
 CREATE TABLE staff_certifications (
     staff_cert_id SERIAL PRIMARY KEY,
@@ -193,13 +189,12 @@ CREATE TABLE staff_certifications (
 );
  
 CREATE TABLE branch_managers (
-        branch_man_id SERIAL PRIMARY KEY,
+    branch_man_id SERIAL PRIMARY KEY,
     branch_id INT REFERENCES branches(branch_id) ON DELETE SET NULL,
     staff_id INT REFERENCES staff(staff_id) ON DELETE SET NULL,
     assigned_at DATE,
     is_active BOOLEAN
 );
-
 
 CREATE TABLE roles (
     role_id SERIAL PRIMARY KEY,
@@ -211,8 +206,6 @@ CREATE TABLE staff_roles (
     staff_id INT REFERENCES staff(staff_id),
     PRIMARY KEY (role_id, staff_id)
 );
-
-CREATE TYPE ins_status AS ENUM ('passed', 'failed', 'pending', 'in_progress');
 
 CREATE TABLE bay_inspections (
     ins_id SERIAL PRIMARY KEY,
@@ -243,8 +236,6 @@ CREATE TABLE invoices (
     inv_final DECIMAL(10,2) NOT NULL
 );
 
-CREATE TYPE inst_status AS ENUM ('pending', 'paid', 'overdue', 'cancelled');
-
 CREATE TABLE installments (
     inst_id SERIAL PRIMARY KEY,
     inv_id INT REFERENCES invoices(inv_id),
@@ -252,7 +243,6 @@ CREATE TABLE installments (
     inst_due_date DATE NOT NULL,
     inst_paid_date DATE,
     inst_status inst_status
-
 );
 
 CREATE TABLE refunds (
@@ -268,8 +258,6 @@ CREATE TABLE booking_services (
     booking_id INT REFERENCES bookings(booking_id),
     serv_id INT REFERENCES services(serv_id)
 );
-
-CREATE TYPE work_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
 
 CREATE TABLE jobs (
     job_id SERIAL PRIMARY KEY,
@@ -304,7 +292,7 @@ CREATE TABLE part_usage (
 );
 
 CREATE TABLE part_transfers (
-        transfer_id SERIAL PRIMARY KEY,
+    transfer_id SERIAL PRIMARY KEY,
     part_id INT REFERENCES parts(part_id),
     from_branch_id INT REFERENCES branches(branch_id),
     to_branch_id INT REFERENCES branches(branch_id),
@@ -314,10 +302,8 @@ CREATE TABLE part_transfers (
     transfer_date DATE
 );
 
-CREATE TYPE mot_result_enum AS ENUM ('PASS', 'FAIL', 'ADVISORY');
-
 CREATE TABLE mot_results (
-     mot_res_id SERIAL PRIMARY KEY,
+    mot_res_id SERIAL PRIMARY KEY,
     booking_id INT REFERENCES bookings(booking_id),
     vec_id INT REFERENCES vehicles(vec_id),
     staff_id INT REFERENCES staff(staff_id),
@@ -328,7 +314,7 @@ CREATE TABLE mot_results (
     comments TEXT
 );
 
-CREATE TABLE customer_feedbacks (
+CREATE TABLE customer_feedback (
     cust_fb_id SERIAL PRIMARY KEY,
     cust_id INT REFERENCES customers(cust_id),
     booking_id INT REFERENCES bookings(booking_id),
@@ -343,3 +329,4 @@ CREATE TABLE feedback_replies (
     reply_to INT REFERENCES feedback_replies(reply_id),
     reply_content TEXT
 );
+
