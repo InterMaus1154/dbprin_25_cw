@@ -1,4 +1,3 @@
--- put enum types at top due it causing errors if not
 CREATE TYPE pay_period AS ENUM ('weekly', 'monthly', 'yearly');
 CREATE TYPE discount_type AS ENUM ('percentage', 'fixed');
 CREATE TYPE emg_type AS ENUM ('family', 'friend', 'colleague', 'other');
@@ -19,66 +18,72 @@ CREATE TABLE cities (
 
 CREATE TABLE suppliers (
     sup_id SERIAL PRIMARY KEY,
-    sup_name VARCHAR(100),
+    sup_name VARCHAR(100) NOT NULL,
     sup_contact_name VARCHAR(60),
     sup_contact_phone CHAR(15),
-    sup_address_first VARCHAR(100),
+    sup_company_phone CHAR(15) NOT NULL,
+    sup_address_first VARCHAR(100) NOT NULL,
     sup_address_second VARCHAR(100),
-    sup_postcode CHAR(8),
-    sup_city INTEGER NOT NULL,
-    is_active BOOLEAN,
+    sup_postcode CHAR(8) NOT NULL,
+    sup_city INT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     FOREIGN KEY (sup_city) REFERENCES cities(city_id)
 );
 
 CREATE TABLE part_categories (
     part_cat_id SERIAL PRIMARY KEY,
-    part_cat_name VARCHAR(50)
+    part_cat_name VARCHAR(50) NOT NULL
 );
 
 CREATE TABLE parts (
     part_id SERIAL PRIMARY KEY,
-    part_cat_id INTEGER NOT NULL,
-    part_name VARCHAR(100),
+    part_cat_id INT NOT NULL,
+    part_name VARCHAR(100) NOT NULL,
     part_description TEXT,
-    part_price DECIMAL(10,2),
+    part_price DECIMAL(10,2) NOT NULL,
     FOREIGN KEY (part_cat_id) REFERENCES part_categories(part_cat_id)
 );
 
 CREATE TABLE part_suppliers (
-    part_id INT REFERENCES parts(part_id),
-    sup_id INT REFERENCES suppliers(sup_id),
+    sup_id INT NOT NULL,
+    part_id INT NOT NULL,
     unit_cost DECIMAL(10,2) NOT NULL,
-    min_order_quantity SMALLINT NOT NULL,
+    min_order_quantity SMALLINT CHECK (min_order_quantity > 0),
+    FOREIGN KEY (sup_id) REFERENCES suppliers(sup_id),
+    FOREIGN KEY (part_id) REFERENCES parts(part_id),
     PRIMARY KEY (part_id, sup_id)
 );
 
 CREATE TABLE packages (
     pkg_id SERIAL PRIMARY KEY,
     pkg_name VARCHAR(200) NOT NULL,
-    pkg_desc TEXT,
-    is_active BOOLEAN
+    pkg_desc TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE services (
-    serv_id SERIAL PRIMARY KEY,
-    serv_name VARCHAR(200) NOT NULL,
-    serv_desc TEXT,
-    serv_price DECIMAL(10,2) NOT NULL
+    service_id SERIAL PRIMARY KEY,
+    service_name VARCHAR(200) NOT NULL,
+    service_desc TEXT,
+    service_price DECIMAL(10,2) NOT NULL
 );
 
-CREATE TABLE package_services (
-    pkg_id INT REFERENCES packages(pkg_id), 
-    serv_id INT REFERENCES services(serv_id), 
-    PRIMARY KEY (pkg_id, serv_id)
+CREATE TABLE package_services(
+    pkg_id INT NOT NULL,
+    service_id INT NOT NULL,
+    FOREIGN KEY (pkg_id) REFERENCES packages(pkg_id),
+    FOREIGN KEY (service_id) REFERENCES services(service_id),
+    PRIMARY KEY (pkg_id, service_id)
 );
 
 CREATE TABLE service_discounts (
     disc_id SERIAL PRIMARY KEY,
-    serv_id INT REFERENCES services(serv_id),
+    service_id INT NOT NULL,
     disc_amount DECIMAL(6,2) NOT NULL,
     disc_from DATE NOT NULL,
     disc_to DATE NOT NULL,
-    is_active BOOLEAN
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (service_id) REFERENCES services(service_id)
 );
 
 CREATE TABLE memberships (
@@ -123,7 +128,7 @@ CREATE TABLE emergency_contacts (
 
 CREATE TABLE vehicle_brands (
     vec_brand_id SERIAL PRIMARY KEY,
-    vec_brand_name VARCHAR(50) NOT NULL    
+    vec_brand_name VARCHAR(50) NOT NULL
 );
 
 CREATE TABLE vehicles (
@@ -187,7 +192,7 @@ CREATE TABLE staff_certifications (
     cert_level cert_level NOT NULL,
     cert_name VARCHAR(100) NOT NULL
 );
- 
+
 CREATE TABLE branch_managers (
     branch_man_id SERIAL PRIMARY KEY,
     branch_id INT REFERENCES branches(branch_id) ON DELETE SET NULL,
