@@ -86,80 +86,96 @@ CREATE TABLE service_discounts (
     FOREIGN KEY (service_id) REFERENCES services(service_id)
 );
 
+
+CREATE TYPE membership_pay_period AS ENUM ('YEARLY', 'MONTHLY', 'WEEKLY');
 CREATE TABLE memberships (
     mship_id SERIAL PRIMARY KEY,
     mship_name VARCHAR(30) NOT NULL,
-    mship_description TEXT,
+    mship_description TEXT NOT NULL,
     mship_price DECIMAL(8,2) NOT NULL,
     mship_duration_days SMALLINT NOT NULL,
-    mship_pay_period pay_period NOT NULL
+    mship_pay_period membership_pay_period NOT NULL
 );
 
+CREATE TYPE membership_discount_type AS ENUM ('FIXED', 'PERCENT');
 CREATE TABLE membership_services (
-    mship_id INT REFERENCES memberships(mship_id),
-    serv_id INT REFERENCES services(serv_id),
-    discount_type discount_type NOT NULL,
+    mship_id INT NOT NULL,
+    service_id INT NOT NULL,
+    discount_type membership_discount_type NOT NULL,
     discount_value DECIMAL(6,2) NOT NULL,
-    PRIMARY KEY (mship_id, serv_id)
+    FOREIGN KEY (mship_id) REFERENCES memberships(mship_id),
+    FOREIGN KEY (service_id) REFERENCES services(service_id),
+    PRIMARY KEY (mship_id, service_id)
 );
 
 CREATE TABLE customers (
     cust_id SERIAL PRIMARY KEY,
-    mship_id INT REFERENCES memberships(mship_id),
+    mship_id INT,
     mship_start_date DATE,
     mship_end_date DATE,
     mship_auto_renew BOOLEAN,
     cust_fname VARCHAR(50) NOT NULL,
     cust_lname VARCHAR(50) NOT NULL,
-    cust_email VARCHAR(150) UNIQUE NOT NULL,
-    cust_contact_num CHAR(15),
+    cust_email VARCHAR(150) NOT NULL UNIQUE,
+    cust_contact_num CHAR(15) NOT NULL UNIQUE,
     cust_address_first VARCHAR(100) NOT NULL,
     cust_address_second VARCHAR(100),
-    cust_city INT REFERENCES cities(city_id),
-    cust_postcode CHAR(8)
+    cust_city INT NOT NULL,
+    cust_postcode CHAR(8) NOT NULL,
+    FOREIGN KEY (mship_id) REFERENCES memberships(mship_id),
+    FOREIGN KEY (cust_city) REFERENCES cities(city_id)
 );
 
+
+CREATE TYPE emergency_contact_type AS ENUM ('LANDLINE', 'MOBILE', 'EMAIL');
 CREATE TABLE emergency_contacts (
     emg_id SERIAL PRIMARY KEY,
-    cust_id INT REFERENCES customers(cust_id),
-    emg_type emg_type NOT NULL,
-    emg_contact VARCHAR(200) NOT NULL
+    cust_id INT NOT NULL,
+    emg_type emergency_contact_type NOT NULL,
+    emg_contact VARCHAR(200) NOT NULL,
+    FOREIGN KEY (cust_id) REFERENCES customers(cust_id)
 );
 
 CREATE TABLE vehicle_brands (
     vec_brand_id SERIAL PRIMARY KEY,
-    vec_brand_name VARCHAR(50) NOT NULL
+    vec_brand_name VARCHAR(50) NOT NULL UNIQUE
 );
 
+CREATE TYPE vehicle_fuel_types AS ENUM ('PETROL', 'DIESEL', 'HYBRID', 'ELECTRIC');
 CREATE TABLE vehicles (
     vec_id SERIAL PRIMARY KEY,
-    vec_brand_id INT REFERENCES vehicle_brands(vec_brand_id),
-    cust_id INT REFERENCES customers(cust_id),
+    vec_brand_id INT NOT NULL,
+    cust_id INT NOT NULL,
     vec_model VARCHAR(50) NOT NULL,
-    vec_reg CHAR(7) UNIQUE NOT NULL,
-    vec_year SMALLINT,
+    vec_reg CHAR(7) NOT NULL UNIQUE,
+    vec_year SMALLINT NOT NULL,
     vec_colour VARCHAR(10),
-    vec_vin CHAR(17) UNIQUE,
-    vec_fuel_type fuel_type NOT NULL
+    vec_vin CHAR(17) NOT NULL UNIQUE,
+    vec_fuel_type vehicle_fuel_types NOT NULL,
+    FOREIGN KEY (vec_brand_id) REFERENCES vehicle_brands(vec_brand_id),
+    FOREIGN KEY (cust_id) REFERENCES customers(cust_id)
 );
 
 CREATE TABLE branches (
     branch_id SERIAL PRIMARY KEY,
-    branch_name VARCHAR(100) NOT NULL,
-    branch_phone CHAR(15),
-    branch_email VARCHAR(200),
+    branch_code CHAR(7) NOT NULL UNIQUE,
+    branch_name VARCHAR(100) NOT NULL UNIQUE,
+    branch_phone CHAR(15) NOT NULL,
+    branch_email VARCHAR(200) NOT NULL UNIQUE,
     branch_address_first VARCHAR(100) NOT NULL,
     branch_address_second VARCHAR(100),
-    branch_postcode CHAR(8),
-    branch_city INT REFERENCES cities(city_id)
+    branch_postcode CHAR(8) NOT NULL,
+    branch_city INT NOT NULL,
+    FOREIGN KEY (branch_city) REFERENCES cities(city_id)
 );
 
 CREATE TABLE bays (
     bay_id SERIAL PRIMARY KEY,
-    branch_id INT REFERENCES branches(branch_id) ON DELETE CASCADE,
+    branch_id INT NOT NULL,
     bay_name VARCHAR(50) NOT NULL,
     bay_status bay_status DEFAULT 'available',
-    bay_capacity SMALLINT NOT NULL
+    bay_capacity SMALLINT NOT NULL,
+    FOREIGN KEY (branch_id) REFERENCES branches(branch_id)
 );
 
 CREATE TABLE staff (
