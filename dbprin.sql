@@ -2,7 +2,6 @@ CREATE TYPE pay_period AS ENUM ('weekly', 'monthly', 'yearly');
 CREATE TYPE discount_type AS ENUM ('percentage', 'fixed');
 CREATE TYPE emg_type AS ENUM ('family', 'friend', 'colleague', 'other');
 CREATE TYPE fuel_type AS ENUM ('petrol', 'diesel', 'electric', 'hybrid', 'other');
-CREATE TYPE bay_status AS ENUM ('available', 'occupied', 'maintenance', 'closed');
 CREATE TYPE schedule_day AS ENUM ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday');
 CREATE TYPE cert_level AS ENUM ('beginner', 'intermediate', 'advanced', 'expert');
 CREATE TYPE ins_status AS ENUM ('passed', 'failed', 'pending', 'in_progress');
@@ -169,52 +168,63 @@ CREATE TABLE branches (
     FOREIGN KEY (branch_city) REFERENCES cities(city_id)
 );
 
+CREATE TYPE bay_status AS ENUM ('AVAILABLE', 'OCCUPIED', 'UNDER_MAINTENANCE', 'RESERVED', 'INACTIVE');
 CREATE TABLE bays (
     bay_id SERIAL PRIMARY KEY,
     branch_id INT NOT NULL,
     bay_name VARCHAR(50) NOT NULL,
-    bay_status bay_status DEFAULT 'available',
-    bay_capacity SMALLINT NOT NULL,
+    bay_status bay_status DEFAULT 'AVAILABLE',
+    bay_capacity SMALLINT NOT NULL CHECK (bay_capacity > 0),
     FOREIGN KEY (branch_id) REFERENCES branches(branch_id)
 );
 
 CREATE TABLE staff (
     staff_id SERIAL PRIMARY KEY,
-    branch_id INT REFERENCES branches(branch_id),
+    branch_id INT NOT NULL,
+    staff_code CHAR(11) NOT NULL UNIQUE,
     staff_fname VARCHAR(50) NOT NULL,
     staff_lname VARCHAR(50) NOT NULL,
-    staff_email VARCHAR(200) UNIQUE,
-    staff_work_email VARCHAR(200) UNIQUE,
-    staff_mobile CHAR(15),
-    staff_work_phone CHAR(15),
+    staff_email VARCHAR(200) NOT NULL UNIQUE,
+    staff_work_email VARCHAR(200) NOT NULL UNIQUE,
+    staff_mobile CHAR(15) NOT NULL UNIQUE,
+    staff_work_phone CHAR(15) UNIQUE,
     staff_address_first VARCHAR(100) NOT NULL,
     staff_address_second VARCHAR(100),
-    staff_city INT REFERENCES cities(city_id),
-    staff_postcode CHAR(8),
-    hired_at DATE NOT NULL
+    staff_city INT NOT NULL,
+    staff_postcode CHAR(8) NOT NULL,
+    hired_at DATE NOT NULL,
+    FOREIGN KEY (branch_id) REFERENCES branches(branch_id),
+    FOREIGN KEY (staff_city) REFERENCES cities(city_id)
 );
 
+CREATE TYPE staff_schedule_day AS ENUM ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY');
 CREATE TABLE staff_schedule (
     schedule_id SERIAL PRIMARY KEY,
-    staff_id INT REFERENCES staff(staff_id),
-    schedule_day schedule_day NOT NULL,
+    staff_id INT NOT NULL,
+    schedule_day staff_schedule_day NOT NULL,
     schedule_start_time TIME NOT NULL,
-    schedule_end_time TIME NOT NULL
+    schedule_end_time TIME NOT NULL,
+    CHECK (schedule_start_time < schedule_end_time),
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id)
 );
 
+CREATE TYPE staff_certification_level AS ENUM ('TRAINEE', 'LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'MASTER_TECHNICIAN');
 CREATE TABLE staff_certifications (
     staff_cert_id SERIAL PRIMARY KEY,
-    staff_id INT REFERENCES staff(staff_id),
-    cert_level cert_level NOT NULL,
-    cert_name VARCHAR(100) NOT NULL
+    staff_id INT NOT NULL,
+    cert_level staff_certification_level NOT NULL,
+    cert_name VARCHAR(100) NOT NULL,
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id)
 );
 
 CREATE TABLE branch_managers (
     branch_man_id SERIAL PRIMARY KEY,
-    branch_id INT REFERENCES branches(branch_id) ON DELETE SET NULL,
-    staff_id INT REFERENCES staff(staff_id) ON DELETE SET NULL,
-    assigned_at DATE,
-    is_active BOOLEAN
+    branch_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    assigned_at DATE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (branch_id) REFERENCES branches(branch_id),
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id)
 );
 
 CREATE TABLE roles (
@@ -223,27 +233,33 @@ CREATE TABLE roles (
 );
 
 CREATE TABLE staff_roles (
-    role_id INT REFERENCES roles(role_id),
-    staff_id INT REFERENCES staff(staff_id),
+    role_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    FOREIGN KEY (role_id) REFERENCES roles(role_id),
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id),
     PRIMARY KEY (role_id, staff_id)
 );
 
+CREATE TYPE bay_inspection_status AS ENUM ('PENDING', 'IN_PROGRESS', 'PASSED', 'FAILED', 'REINSPECTION_DUE', 'CANCELLED');
 CREATE TABLE bay_inspections (
-    ins_id SERIAL PRIMARY KEY,
-    bay_id INT REFERENCES bays(bay_id),
-    inspected_by INT REFERENCES staff(staff_id),
-    ins_date DATE NOT NULL,
-    ins_status ins_status NOT NULL,
-    ins_next_due_date DATE,
-    ins_remarks TEXT
+    inspection_id SERIAL PRIMARY KEY,
+    bay_id INT NOT NULL,
+    inspected_by INT NOT NULL,
+    inspection_date DATE NOT NULL,
+    inspection_status bay_inspection_status NOT NULL,
+    inspection_next_due_date DATE NOT NULL,
+    inspection_remarks TEXT NOT NULL,
+    FOREIGN KEY (bay_id) REFERENCES bays(bay_id),
+    FOREIGN KEY (inspected_by) REFERENCES staff(staff_id)
 );
 
 CREATE TABLE bookings (
     booking_id SERIAL PRIMARY KEY,
-    vec_id INT REFERENCES vehicles(vec_id),
+    vec_id INT NOT NULL,
     booking_date DATE NOT NULL,
     booking_time TIME NOT NULL,
-    booking_comments TEXT
+    booking_comments TEXT,
+    FOREIGN KEY (vec_id) REFERENCES vehicles(vec_id)
 );
 
 CREATE TABLE invoices (
