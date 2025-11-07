@@ -443,7 +443,8 @@ CREATE TABLE part_transfers (
     quantity SMALLINT NOT NULL,
     transfer_date DATE NOT NULL,
     transfer_status transfer_status NOT NULL DEFAULT 'REQUESTED',
-    transfer_note TEXT
+    transfer_note TEXT,
+    CHECK (from_branch_id <> to_branch_id),
     CHECK (quantity > 0),
     CHECK (requested_at <= transfer_date),
     FOREIGN KEY (part_id) REFERENCES parts(part_id),
@@ -453,7 +454,8 @@ CREATE TABLE part_transfers (
     FOREIGN KEY (approved_by) REFERENCES staff(staff_id)
 );
 
-CREATE INDEX idx_part_transfer_status_to_branch ON part_transfers (transfer_status, to_branch_id);
+CREATE INDEX idx_part_transfer_status_to_branch ON part_transfers (to_branch_id, transfer_status);
+CREATE INDEX idx_part_transfer_status_from_branch ON part_transfers (from_branch_id, transfer_status);
 
 CREATE TYPE mot_result_status AS ENUM ('PASS', 'FAIL', 'PASS_WITH_DEFECTS', 'FAIL_DANGEROUS');
 CREATE TABLE mot_results (
@@ -473,6 +475,9 @@ CREATE TABLE mot_results (
     FOREIGN KEY (staff_id) REFERENCES staff(staff_id)
 );
 
+CREATE INDEX idx_mot_result_vehicle_expiry_date ON mot_results (vec_id, expiry_date DESC);
+CREATE INDEX idx_mot_result_test_date ON mot_results (test_date);
+
 CREATE TABLE customer_feedbacks (
     cust_fb_id SERIAL PRIMARY KEY,
     cust_id INT NOT NULL,
@@ -481,6 +486,8 @@ CREATE TABLE customer_feedbacks (
     FOREIGN KEY (cust_id) REFERENCES customers(cust_id),
     FOREIGN KEY (booking_id) REFERENCES bookings(booking_id)
 );
+
+CREATE INDEX idx_customer_feedback_booking ON customer_feedbacks (booking_id);
 
 CREATE TABLE feedback_replies (
     reply_id SERIAL PRIMARY KEY,
@@ -495,4 +502,5 @@ CREATE TABLE feedback_replies (
     FOREIGN KEY (reply_to) REFERENCES feedback_replies(reply_id)
 );
 
-
+CREATE INDEX idx_feedback_replies_feedback ON feedback_replies (cust_fb_id);
+CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
