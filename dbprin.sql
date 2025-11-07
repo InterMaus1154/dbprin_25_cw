@@ -1,15 +1,3 @@
-CREATE TYPE pay_period AS ENUM ('weekly', 'monthly', 'yearly');
-CREATE TYPE discount_type AS ENUM ('percentage', 'fixed');
-CREATE TYPE emg_type AS ENUM ('family', 'friend', 'colleague', 'other');
-CREATE TYPE fuel_type AS ENUM ('petrol', 'diesel', 'electric', 'hybrid', 'other');
-CREATE TYPE schedule_day AS ENUM ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday');
-CREATE TYPE cert_level AS ENUM ('beginner', 'intermediate', 'advanced', 'expert');
-CREATE TYPE ins_status AS ENUM ('passed', 'failed', 'pending', 'in_progress');
-CREATE TYPE inst_status AS ENUM ('pending', 'paid', 'overdue', 'cancelled');
-CREATE TYPE work_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
-CREATE TYPE mot_result_enum AS ENUM ('PASS', 'FAIL', 'ADVISORY');
--- testing 2
---Testing
 CREATE TABLE cities (
     city_id SERIAL PRIMARY KEY,
     city_name VARCHAR(50) NOT NULL
