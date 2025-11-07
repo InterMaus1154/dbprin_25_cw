@@ -262,108 +262,176 @@ CREATE TABLE bookings (
     FOREIGN KEY (vec_id) REFERENCES vehicles(vec_id)
 );
 
-CREATE TABLE invoices (
-    inv_id SERIAL PRIMARY KEY,
-    booking_id INT REFERENCES bookings(booking_id),
-    inv_number VARCHAR(10) UNIQUE NOT NULL,
-    inv_issue_date DATE NOT NULL,
-    inv_due_date DATE NOT NULL,
-    inv_total DECIMAL(10,2) NOT NULL,
-    inv_discount DECIMAL(10,2),
-    inv_final DECIMAL(10,2) NOT NULL
+CREATE TABLE booking_packages(
+    booking_id INT NOT NULL,
+    pkg_id INT NOT NULL,
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
+    FOREIGN KEY (pkg_id) REFERENCES packages(pkg_id)
 );
 
+
+
+CREATE TYPE payment_status AS ENUM ('PAID', 'OVERDUE', 'PENDING');
+CREATE TABLE invoices (
+    inv_id SERIAL PRIMARY KEY,
+    booking_id INT NOT NULL,
+    inv_number CHAR(16) UNIQUE NOT NULL, -- INV-POGS01-00001
+    inv_issue_date DATE NOT NULL,
+    inv_due_date DATE NOT NULL,
+    inv_total DECIMAL(10,2),
+    inv_discount DECIMAL(10,2),
+    inv_final DECIMAL(10,2),
+    CHECK (inv_issue_date <= inv_due_date),
+    CHECK (inv_total > 0),
+    CHECK (inv_final > 0),
+    CHECK (inv_discount >= 0),
+    CHECK (inv_final <= inv_total - inv_discount),
+    FOREIGN KEY (booking_id) REFERENCES bookings (booking_id)
+);
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS
+inv_status payment_status NOT NULL DEFAULT 'PENDING';
+
+
+CREATE TYPE installment_payment_status AS ENUM ('PAID', 'OVERDUE', 'PENDING', 'CANCELLED');
 CREATE TABLE installments (
     inst_id SERIAL PRIMARY KEY,
-    inv_id INT REFERENCES invoices(inv_id),
+    inv_id INT NOT NULL,
     inst_number SMALLINT NOT NULL,
     inst_due_date DATE NOT NULL,
     inst_paid_date DATE,
-    inst_status inst_status
+    inst_status installment_payment_status NOT NULL DEFAULT 'PENDING',
+    CHECK (inst_number > 0),
+    UNIQUE (inv_id, inst_number), -- an invoice can't have same installment numbers
+    FOREIGN KEY (inv_id) REFERENCES invoices(inv_id)
 );
 
 CREATE TABLE refunds (
     refund_id SERIAL PRIMARY KEY,
-    inv_id INT REFERENCES invoices(inv_id),
-    refunded_by INT REFERENCES staff(staff_id),
+    inv_id INT NOT NULL,
+    refunded_by INT NOT NULL,
     refund_amount DECIMAL(10,2) NOT NULL,
-    refund_reason TEXT
+    refund_reason TEXT,
+    CHECK (refund_amount > 0),
+    FOREIGN KEY (inv_id) REFERENCES invoices (inv_id),
+    FOREIGN KEY (refunded_by) REFERENCES staff(stafF_id)
 );
 
 CREATE TABLE booking_services (
-    booking_serv_id SERIAL PRIMARY KEY,
-    booking_id INT REFERENCES bookings(booking_id),
-    serv_id INT REFERENCES services(serv_id)
+    booking_service_id SERIAL PRIMARY KEY,
+    booking_id INT NOT NULL,
+    service_id INT NOT NULL,
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
+    FOREIGN KEY (service_id) REFERENCES services(service_id),
+    UNIQUE (booking_id, service_id) -- a booking cant have the same service twice
 );
 
+CREATE TYPE job_status AS ENUM ('SCHEDULED', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED', 'FAILED');
 CREATE TABLE jobs (
     job_id SERIAL PRIMARY KEY,
-    staff_id INT REFERENCES staff(staff_id),
-    booking_serv_id INT REFERENCES booking_services(booking_serv_id),
-    bay_id INT REFERENCES bays(bay_id),
-    assigned_at DATE NOT NULL,
-    work_start TIMESTAMP,
-    work_end TIMESTAMP,
-    work_status work_status
+    staff_id INT NOT NULL,
+    booking_service_id INT NOT NULL,
+    bay_id INT NOT NULL,
+    job_assigned_at DATE NOT NULL,
+    job_due_at DATE NOT NULL,
+    job_start TIMESTAMP,
+    job_end TIMESTAMP,
+    job_status job_status NOT NULL DEFAULT 'SCHEDULED',
+    job_notes TEXT,
+    CHECK (job_start < job_end),
+    CHECK (job_assigned_at <= job_due_at),
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id),
+    FOREIGN KEY (booking_service_id) REFERENCES booking_services(booking_service_id),
+    FOREIGN KEY (bay_id) REFERENCES bays (bay_id)
 );
 
 CREATE TABLE additional_services (
-    job_id INT REFERENCES jobs(job_id),
-    serv_id INT REFERENCES services(serv_id),
-    note TEXT,
-    PRIMARY KEY (job_id, serv_id)
+    job_id INT NOT NULL,
+    service_id INT NOT NULL,
+    note TEXT NOT NULL,
+    FOREIGN KEY (job_id) REFERENCES jobs(job_id),
+    FOREIGN KEY (service_id) REFERENCES services(service_id),
+    PRIMARY KEY (job_id, service_id)
 );
 
 CREATE TABLE branch_parts (
-    branch_id INT REFERENCES branches(branch_id),
-    part_id INT REFERENCES parts(part_id),
-    quantity SMALLINT,
+    branch_id INT NOT NULL,
+    part_id INT NOT NULL,
+    quantity SMALLINT NOT NULL,
+    CHECK (quantity >= 0),
+    FOREIGN KEY (branch_id) REFERENCES branches(branch_id),
+    FOREIGN KEY (part_id) REFERENCES parts(part_id),
     PRIMARY KEY (branch_id, part_id)
 );
 
 CREATE TABLE part_usage (
-    job_id INT REFERENCES jobs(job_id),
-    part_id INT REFERENCES parts(part_id),
-    quantity INT,
+    job_id INT NOT NULL,
+    part_id INT NOT NULL,
+    quantity SMALLINT NOT NULL,
+    CHECK (quantity > 0),
+    FOREIGN KEY (job_id) REFERENCES jobs(job_id),
+    FOREIGN KEY (part_id) REFERENCES parts(part_id),
     PRIMARY KEY (job_id, part_id)
 );
 
+CREATE TYPE transfer_status AS ENUM ('REQUESTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'REJECTED');
 CREATE TABLE part_transfers (
     transfer_id SERIAL PRIMARY KEY,
-    part_id INT REFERENCES parts(part_id),
-    from_branch_id INT REFERENCES branches(branch_id),
-    to_branch_id INT REFERENCES branches(branch_id),
-    requested_by INT REFERENCES staff(staff_id),
-    approved_by INT REFERENCES staff(staff_id),
-    quantity INT,
-    transfer_date DATE
+    part_id INT NOT NULL,
+    from_branch_id INT NOT NULL,
+    to_branch_id INT NOT NULL,
+    requested_by INT NOT NULL, -- staff
+    requested_at DATE NOT NULL,
+    approved_by INT NOT NULL, -- staff
+    quantity SMALLINT NOT NULL,
+    transfer_date DATE NOT NULL,
+    transfer_status transfer_status NOT NULL DEFAULT 'REQUESTED',
+    transfer_note TEXT
+    CHECK (quantity > 0),
+    CHECK (requested_at <= transfer_date),
+    FOREIGN KEY (part_id) REFERENCES parts(part_id),
+    FOREIGN KEY (from_branch_id) REFERENCES branches(branch_id),
+    FOREIGN KEY (to_branch_id) REFERENCES branches(branch_id),
+    FOREIGN KEY (requested_by) REFERENCES staff(staff_id),
+    FOREIGN KEY (approved_by) REFERENCES staff(staff_id)
 );
 
+CREATE TYPE mot_result_status AS ENUM ('PASS', 'FAIL', 'PASS_WITH_DEFECTS', 'FAIL_DANGEROUS');
 CREATE TABLE mot_results (
     mot_res_id SERIAL PRIMARY KEY,
-    booking_id INT REFERENCES bookings(booking_id),
-    vec_id INT REFERENCES vehicles(vec_id),
-    staff_id INT REFERENCES staff(staff_id),
-    test_date DATE,
-    expiry_date DATE,
-    result mot_result_enum,
-    mileage_reading INT,
-    comments TEXT
+    booking_id INT NOT NULL,
+    vec_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    test_date DATE NOT NULL,
+    expiry_date DATE NOT NULL,
+    result mot_result_status NOT NULL,
+    mileage_reading INT NOT NULL,
+    comments TEXT NOT NULL,
+    CHECK (mileage_reading > 0),
+    CHECK (test_date < expiry_date),
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
+    FOREIGN KEY (vec_id) REFERENCES vehicles(vec_id),
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id)
 );
 
-CREATE TABLE customer_feedback (
+CREATE TABLE customer_feedbacks (
     cust_fb_id SERIAL PRIMARY KEY,
-    cust_id INT REFERENCES customers(cust_id),
-    booking_id INT REFERENCES bookings(booking_id),
-    cust_fb_content TEXT
+    cust_id INT NOT NULL,
+    booking_id INT NOT NULL,
+    cust_fb_content TEXT NOT NULL,
+    FOREIGN KEY (cust_id) REFERENCES customers(cust_id),
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id)
 );
 
 CREATE TABLE feedback_replies (
     reply_id SERIAL PRIMARY KEY,
-    cust_fb_id INT REFERENCES customer_feedback(cust_fb_id),
-    staff_id INT REFERENCES staff(staff_id),
-    cust_id INT REFERENCES customers(cust_id),
-    reply_to INT REFERENCES feedback_replies(reply_id),
-    reply_content TEXT
+    cust_fb_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    cust_id INT NOT NULL,
+    reply_to INT,
+    reply_content TEXT NOT NULL,
+    FOREIGN KEY (cust_fb_id) REFERENCES customer_feedbacks(cust_fb_id),
+    FOREIGN KEY (staff_id) REFERENCES staff(staff_id),
+    FOREIGN KEY (cust_id) REFERENCES customers(cust_id),
+    FOREIGN KEY (reply_to) REFERENCES feedback_replies(reply_id)
 );
 
