@@ -235,6 +235,7 @@ CREATE TABLE staff (
 CREATE INDEX idx_staff_branch ON staff (branch_id);
 CREATE INDEX idx_staff_code ON staff (staff_code);
 CREATE INDEX idx_staff_name ON staff (staff_fname, staff_lname);
+CREATE INDEX idx_staff_location ON staff (staff_city, staff_postcode);
 
 CREATE TYPE staff_schedule_day AS ENUM ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY');
 CREATE TABLE staff_schedule (
@@ -266,6 +267,8 @@ CREATE TABLE branch_managers (
     FOREIGN KEY (staff_id) REFERENCES staff(staff_id)
 );
 
+CREATE INDEX idx_branch_manager_branch_active ON branch_managers (branch_id, is_active);
+
 CREATE TABLE roles (
     role_id SERIAL PRIMARY KEY,
     role_name VARCHAR(50) NOT NULL
@@ -292,6 +295,9 @@ CREATE TABLE bay_inspections (
     FOREIGN KEY (inspected_by) REFERENCES staff(staff_id)
 );
 
+CREATE INDEX idx_bay_inspection_bay_status ON bay_inspections (bay_id, inspection_status);
+CREATE INDEX idx_bay_inspection_bay_next_inspection ON bay_inspections (bay_id, inspection_next_due_date);
+
 CREATE TABLE bookings (
     booking_id SERIAL PRIMARY KEY,
     vec_id INT NOT NULL,
@@ -301,13 +307,15 @@ CREATE TABLE bookings (
     FOREIGN KEY (vec_id) REFERENCES vehicles(vec_id)
 );
 
+CREATE INDEX idx_booking_vehicle ON bookings (vec_id);
+CREATE INDEX idx_booking_date ON bookings (booking_date);
+
 CREATE TABLE booking_packages(
     booking_id INT NOT NULL,
     pkg_id INT NOT NULL,
     FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
     FOREIGN KEY (pkg_id) REFERENCES packages(pkg_id)
 );
-
 
 
 CREATE TYPE payment_status AS ENUM ('PAID', 'OVERDUE', 'PENDING');
@@ -330,6 +338,10 @@ CREATE TABLE invoices (
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS
 inv_status payment_status NOT NULL DEFAULT 'PENDING';
 
+CREATE INDEX idx_invoice_status ON invoices (inv_status);
+CREATE INDEX idx_invoice_booking ON invoices (booking_id);
+CREATE INDEX idx_invoice_due_date ON invoices (inv_due_date);
+
 
 CREATE TYPE installment_payment_status AS ENUM ('PAID', 'OVERDUE', 'PENDING', 'CANCELLED');
 CREATE TABLE installments (
@@ -344,6 +356,8 @@ CREATE TABLE installments (
     FOREIGN KEY (inv_id) REFERENCES invoices(inv_id)
 );
 
+CREATE INDEX idx_installment_status ON installments (inst_status);
+
 CREATE TABLE refunds (
     refund_id SERIAL PRIMARY KEY,
     inv_id INT NOT NULL,
@@ -354,6 +368,8 @@ CREATE TABLE refunds (
     FOREIGN KEY (inv_id) REFERENCES invoices (inv_id),
     FOREIGN KEY (refunded_by) REFERENCES staff(stafF_id)
 );
+
+CREATE INDEX idx_refund_invoice ON refunds (inv_id);
 
 CREATE TABLE booking_services (
     booking_service_id SERIAL PRIMARY KEY,
@@ -436,6 +452,8 @@ CREATE TABLE part_transfers (
     FOREIGN KEY (requested_by) REFERENCES staff(staff_id),
     FOREIGN KEY (approved_by) REFERENCES staff(staff_id)
 );
+
+CREATE INDEX idx_part_transfer_status_to_branch ON part_transfers (transfer_status, to_branch_id);
 
 CREATE TYPE mot_result_status AS ENUM ('PASS', 'FAIL', 'PASS_WITH_DEFECTS', 'FAIL_DANGEROUS');
 CREATE TABLE mot_results (
