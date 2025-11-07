@@ -8,7 +8,7 @@ CREATE TYPE ins_status AS ENUM ('passed', 'failed', 'pending', 'in_progress');
 CREATE TYPE inst_status AS ENUM ('pending', 'paid', 'overdue', 'cancelled');
 CREATE TYPE work_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
 CREATE TYPE mot_result_enum AS ENUM ('PASS', 'FAIL', 'ADVISORY');
-
+-- testing 2
 --Testing
 CREATE TABLE cities (
     city_id SERIAL PRIMARY KEY,
