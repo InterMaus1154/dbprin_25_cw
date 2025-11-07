@@ -29,10 +29,15 @@ CREATE TABLE suppliers (
     FOREIGN KEY (sup_city) REFERENCES cities(city_id)
 );
 
+CREATE INDEX idx_supplier_name ON suppliers (sup_name);
+CREATE INDEX idx_supplier_location ON suppliers (sup_postcode, sup_city);
+CREATE INDEX idx_supplier_city ON suppliers (sup_city);
+
 CREATE TABLE part_categories (
     part_cat_id SERIAL PRIMARY KEY,
     part_cat_name VARCHAR(50) NOT NULL
 );
+
 
 CREATE TABLE parts (
     part_id SERIAL PRIMARY KEY,
@@ -42,6 +47,9 @@ CREATE TABLE parts (
     part_price DECIMAL(10,2) NOT NULL,
     FOREIGN KEY (part_cat_id) REFERENCES part_categories(part_cat_id)
 );
+
+CREATE INDEX idx_part_cat ON parts (part_cat_id);
+CREATE INDEX idx_part_name ON parts (part_name);
 
 CREATE TABLE part_suppliers (
     sup_id INT NOT NULL,
@@ -53,12 +61,17 @@ CREATE TABLE part_suppliers (
     PRIMARY KEY (part_id, sup_id)
 );
 
+CREATE INDEX idx_part_unit_cost_supplier ON part_suppliers (part_id, unit_cost);
+CREATE INDEX idx_parts_supplied_by_supplier ON part_suppliers (sup_id);
+
 CREATE TABLE packages (
     pkg_id SERIAL PRIMARY KEY,
     pkg_name VARCHAR(200) NOT NULL,
     pkg_desc TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
+
+CREATE INDEX idx_package_name ON packages (pkg_name);
 
 CREATE TABLE services (
     service_id SERIAL PRIMARY KEY,
@@ -67,6 +80,8 @@ CREATE TABLE services (
     service_price DECIMAL(10,2) NOT NULL
 );
 
+CREATE INDEX idx_service_name ON services (service_name);
+
 CREATE TABLE package_services(
     pkg_id INT NOT NULL,
     service_id INT NOT NULL,
@@ -74,6 +89,7 @@ CREATE TABLE package_services(
     FOREIGN KEY (service_id) REFERENCES services(service_id),
     PRIMARY KEY (pkg_id, service_id)
 );
+
 
 CREATE TABLE service_discounts (
     disc_id SERIAL PRIMARY KEY,
@@ -85,6 +101,8 @@ CREATE TABLE service_discounts (
     FOREIGN KEY (service_id) REFERENCES services(service_id)
 );
 
+CREATE INDEX idx_service_discount_for_period ON service_discounts (disc_from, disc_to);
+CREATE INDEX idx_service_discount_for_service_period ON service_discounts (service_id, disc_from, disc_to);
 
 CREATE TYPE membership_pay_period AS ENUM ('YEARLY', 'MONTHLY', 'WEEKLY');
 CREATE TABLE memberships (
@@ -95,6 +113,8 @@ CREATE TABLE memberships (
     mship_duration_days SMALLINT NOT NULL,
     mship_pay_period membership_pay_period NOT NULL
 );
+
+CREATE INDEX idx_customer_membership_duration ON memberships(mship_price, mship_duration_days);
 
 CREATE TYPE membership_discount_type AS ENUM ('FIXED', 'PERCENT');
 CREATE TABLE membership_services (
@@ -125,15 +145,20 @@ CREATE TABLE customers (
     FOREIGN KEY (cust_city) REFERENCES cities(city_id)
 );
 
+CREATE INDEX idx_customer_name ON customers (cust_lname, cust_fname);
+CREATE INDEX idx_customer_email ON customers (cust_email);
+CREATE INDEX idx_customer_postcode_lastname ON customers (cust_postcode, cust_lname);
 
 CREATE TYPE emergency_contact_type AS ENUM ('LANDLINE', 'MOBILE', 'EMAIL');
-CREATE TABLE emergency_contacts (
+CREATE TABLE customer_emergency_contacts (
     emg_id SERIAL PRIMARY KEY,
     cust_id INT NOT NULL,
     emg_type emergency_contact_type NOT NULL,
     emg_contact VARCHAR(200) NOT NULL,
     FOREIGN KEY (cust_id) REFERENCES customers(cust_id)
 );
+
+CREATE INDEX idx_emergency_contact_customer_id ON customer_emergency_contacts (cust_id);
 
 CREATE TABLE vehicle_brands (
     vec_brand_id SERIAL PRIMARY KEY,
@@ -155,6 +180,10 @@ CREATE TABLE vehicles (
     FOREIGN KEY (cust_id) REFERENCES customers(cust_id)
 );
 
+CREATE INDEX idx_vehicle_customer ON vehicles (cust_id);
+CREATE INDEX idx_vehicle_registration_number ON vehicles (vec_reg);
+CREATE INDEX idx_vehicle_vin ON vehicles (vec_vin);
+
 CREATE TABLE branches (
     branch_id SERIAL PRIMARY KEY,
     branch_code CHAR(7) NOT NULL UNIQUE,
@@ -168,6 +197,10 @@ CREATE TABLE branches (
     FOREIGN KEY (branch_city) REFERENCES cities(city_id)
 );
 
+CREATE INDEX idx_branch_code ON branches (branch_code);
+CREATE INDEX idx_branch_location ON branches (branch_city, branch_postcode);
+CREATE INDEX idx_branch_postcode ON branches (branch_postcode);
+
 CREATE TYPE bay_status AS ENUM ('AVAILABLE', 'OCCUPIED', 'UNDER_MAINTENANCE', 'RESERVED', 'INACTIVE');
 CREATE TABLE bays (
     bay_id SERIAL PRIMARY KEY,
@@ -177,6 +210,8 @@ CREATE TABLE bays (
     bay_capacity SMALLINT NOT NULL CHECK (bay_capacity > 0),
     FOREIGN KEY (branch_id) REFERENCES branches(branch_id)
 );
+
+CREATE INDEX idx_branch_bay_status ON bays (branch_id, bay_status);
 
 CREATE TABLE staff (
     staff_id SERIAL PRIMARY KEY,
@@ -196,6 +231,10 @@ CREATE TABLE staff (
     FOREIGN KEY (branch_id) REFERENCES branches(branch_id),
     FOREIGN KEY (staff_city) REFERENCES cities(city_id)
 );
+
+CREATE INDEX idx_staff_branch ON staff (branch_id);
+CREATE INDEX idx_staff_code ON staff (staff_code);
+CREATE INDEX idx_staff_name ON staff (staff_fname, staff_lname);
 
 CREATE TYPE staff_schedule_day AS ENUM ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY');
 CREATE TABLE staff_schedule (
@@ -344,6 +383,9 @@ CREATE TABLE jobs (
     FOREIGN KEY (bay_id) REFERENCES bays (bay_id)
 );
 
+CREATE INDEX idx_job_staff_due ON jobs (staff_id, job_due_at);
+CREATE INDEX idx_job_staff_status_due ON jobs (staff_id, job_status, job_due_at);
+
 CREATE TABLE additional_services (
     job_id INT NOT NULL,
     service_id INT NOT NULL,
@@ -434,4 +476,5 @@ CREATE TABLE feedback_replies (
     FOREIGN KEY (cust_id) REFERENCES customers(cust_id),
     FOREIGN KEY (reply_to) REFERENCES feedback_replies(reply_id)
 );
+
 
