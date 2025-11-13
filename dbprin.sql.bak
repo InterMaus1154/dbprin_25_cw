@@ -480,8 +480,8 @@ CREATE INDEX idx_customer_feedback_booking ON customer_feedbacks (booking_id);
 CREATE TABLE feedback_replies (
     reply_id SERIAL PRIMARY KEY,
     cust_fb_id INT NOT NULL,
-    staff_id INT,
-    cust_id INT,
+    staff_id INT NOT NULL,
+    cust_id INT NOT NULL,
     reply_to INT,
     reply_content TEXT NOT NULL,
     FOREIGN KEY (cust_fb_id) REFERENCES customer_feedbacks(cust_fb_id),
