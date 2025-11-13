@@ -664,3 +664,24 @@ GROUP BY
     b.branch_name
 ORDER BY
     total_jobs DESC;
+
+-- Find low-stock parts across branches
+SELECT
+    p.part_name,
+    pc.part_cat_name,
+    bp.branch_id,
+    bp.quantity,
+    ps.unit_cost,
+    s.sup_name
+FROM
+    branch_parts bp
+    JOIN parts p ON bp.part_id = p.part_id
+    JOIN part_categories pc ON p.part_cat_id = pc.part_cat_id
+    JOIN part_suppliers ps ON p.part_id = ps.part_id
+    JOIN suppliers s ON ps.sup_id = s.sup_id
+WHERE
+    bp.quantity < 10 -- Threshold for low stock, will change for more realistic qty
+    AND s.is_active = TRUE
+ORDER BY
+    bp.quantity ASC,
+    ps.unit_cost DESC;
