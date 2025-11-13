@@ -636,3 +636,31 @@ GROUP BY
     m.mship_name
 ORDER BY
     total_spend DESC;
+
+-- Branch Level Workload
+SELECT
+    b.branch_name,
+    COUNT(DISTINCT s.staff_id) as total_staff,
+    COUNT(j.job_id) as total_jobs,
+    ROUND(
+        COUNT(j.job_id) :: NUMERIC / NULLIF(COUNT(DISTINCT s.staff_id), 0),
+        1
+    ) as avg_jobs_per_staff,
+    COUNT(
+        CASE
+            WHEN j.job_status = 'SCHEDULED' THEN 1
+        END
+    ) as pending_jobs,
+    COUNT(
+        CASE
+            WHEN j.job_status = 'IN_PROGRESS' THEN 1
+        END
+    ) as active_jobs
+FROM
+    branches b
+    INNER JOIN staff s ON b.branch_id = s.branch_id
+    LEFT JOIN jobs j ON s.staff_id = j.staff_id
+GROUP BY
+    b.branch_name
+ORDER BY
+    total_jobs DESC;
