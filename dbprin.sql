@@ -284,11 +284,10 @@ BEGIN
     IF EXISTS (SELECT 1
                FROM branch_managers
                WHERE staff_id = NEW.staff_id
-                   AND branch_id = NEW.branch_id
-                   AND is_active = TRUE
-                   AND (TG_OP = 'INSERT'
-                  OR branch_man_id <> NEW.branch_main_id)
-               )
+                 AND branch_id = NEW.branch_id
+                 AND is_active = TRUE
+                 AND (TG_OP = 'INSERT'
+                   OR branch_man_id <> NEW.branch_main_id))
     THEN
         RAISE EXCEPTION 'Staff % is already an active manager at % branch', NEW.staff_id, NEW.branch_id;
     END IF;
@@ -564,3 +563,33 @@ CREATE TABLE feedback_replies
 
 CREATE INDEX idx_feedback_replies_feedback ON feedback_replies (cust_fb_id);
 CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
+
+-- views
+
+-- minimal information about customer
+CREATE MATERIALIZED VIEW customer_safe
+AS
+SELECT cust_fname, cust_lname, cust_contact_num, cust_postcode
+FROM customers;
+CREATE OR REPLACE function refresh_customer_safe()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY customer_safe;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tgr_refresh_customer_safe
+    AFTER INSERT OR UPDATE OR DELETE
+    ON customers
+    FOR EACH ROW
+EXECUTE FUNCTION refresh_customer_safe();
+
+-- roles and permissions
+
+-- passwords are just placeholders, the important parts are roles and permisisons
+-- super admin -> owner or someone
+CREATE ROLE admin WITH LOGIN SUPERUSER PASSWORD '1234';
+
+-- staff are able to access bookings, create
+
