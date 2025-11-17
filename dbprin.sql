@@ -567,15 +567,16 @@ CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
 -- views
 
 -- minimal information about customer
-CREATE MATERIALIZED VIEW customer_safe
+CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
 AS
 SELECT cust_fname, cust_lname, cust_contact_num, cust_postcode
 FROM customers;
-CREATE OR REPLACE function refresh_customer_safe()
+
+CREATE OR REPLACE FUNCTION refresh_customer_safe()
     RETURNS TRIGGER AS
 $$
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY customer_safe;
+    REFRESH MATERIALIZED VIEW customer_safe;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -586,26 +587,115 @@ CREATE OR REPLACE TRIGGER tgr_refresh_customer_safe
     FOR EACH STATEMENT
 EXECUTE FUNCTION refresh_customer_safe();
 
+-- staff roles with role name
+CREATE MATERIALIZED VIEW IF NOT EXISTS staff_role_detailed
+AS
+SELECT s.staff_id,
+       CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
+       r.role_id,
+       r.role_name
+FROM staff s
+         JOIN staff_roles
+              USING (staff_id)
+         JOIN roles r
+              USING (role_id)
+ORDER BY s.staff_fname ASC, s.staff_lname ASC;
+
+CREATE OR REPLACE FUNCTION refresh_staff_role_detailed()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW staff_role_detailed;
+    RETURN NULL;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE trigger tgr_refresh_staff_role_detailed
+    AFTER INSERT OR UPDATE OR DELETE
+    ON staff_roles
+    FOR EACH STATEMENT
+EXECUTE FUNCTION refresh_staff_role_detailed();
+
+
+-- branch managers with branch name and full staff name
+-- only include active managers
+CREATE MATERIALIZED VIEW IF NOT EXISTS branch_manager_details
+AS
+SELECT s.staff_id,
+       CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
+       b.branch_id,
+       b.branch_code,
+       b.branch_name
+FROM staff s
+         JOIN (SELECT staff_id, branch_id
+               FROM branch_managers
+               WHERE is_active = TRUE) AS subq ON s.staff_id = subq.staff_id
+         JOIN branches b
+              ON b.branch_id = subq.branch_id
+ORDER BY b.branch_id DESC;
+
+CREATE OR REPLACE FUNCTION refresh_branch_manager_details()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW branch_manager_details;
+    RETURN NULL;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_refresh_branch_manager_details
+    AFTER INSERT OR UPDATE OR DELETE
+    ON branch_managers
+    FOR EACH STATEMENT
+EXECUTE FUNCTION refresh_branch_manager_details();
+
 -- roles and permissions
 
-ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bookings
+    ENABLE ROW LEVEL SECURITY;
 
 -- passwords are just placeholders, the important parts are roles and permisisons
 -- super admin -> owner or someone
 CREATE USER admin WITH LOGIN SUPERUSER PASSWORD 'admin_1234';
 
--- staff are able to access bookings, create
-CREATE USER staff WITH LOGIN PASSWORD 'staff_1234';
-GRANT SELECT, INSERT, UPDATE, DELETE ON bookings TO staff;
+-- general technician role
+CREATE ROLE technician;
 
--- current_branch needs to be set for the staff who logged in
---example: SET app.current_branch = 3;
-CREATE POLICY staff_branch_bookings
-ON bookings
-FOR ALL
-USING (
-    branch_id = current_setting('app.current_branch', true)::int
-    )
-WITH CHECK (
-    branch_id = current_setting('app.current_branch', true)::int
-    );
+GRANT SELECT, INSERT, UPDATE, DELETE ON bookings TO technician;
+GRANT SELECT, INSERT, UPDATE, DELETE ON booking_packages TO technician;
+GRANT SELECT, INSERT, UPDATE, DELETE ON booking_services TO technician;
+GRANT SELECT, INSERT, UPDATE ON jobs TO technician;
+GRANT SELECT ON bays TO technician;
+GRANT SELECT ON parts TO technician;
+GRANT SELECT ON branch_parts TO technician;
+GRANT SELECT, INSERT ON part_usage TO technician;
+GRANT SELECT, INSERT ON part_transfers TO technician;
+GRANT SELECT ON customer_safe TO technician;
+GRANT SELECT ON service_discounts TO technician;
+GRANT SELECT ON staff_schedule TO technician;
+GRANT SELECT ON staff_roles TO technician;
+GRANT SELECT ON staff_certifications TO technician;
+
+-- different technician roles
+CREATE ROLE trainee_technician INHERIT;
+CREATE ROLE senior_technician INHERIT;
+CREATE ROLE master_technician INHERIT;
+
+GRANT technician TO trainee_technician;
+GRANT technician TO senior_technician;
+GRANT technician TO master_technician;
+
+-- owner can see everything, but cannot create new user or database
+-- that is the duty of admins
+CREATE USER owner WITH SUPERUSER NOCREATEDB NOCREATEROLE LOGIN PASSWORD 'owner_1234';
+
+-- managers leaderships
+CREATE ROLE general_manager;
+
+
+
+
+
+
