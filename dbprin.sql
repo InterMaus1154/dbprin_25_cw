@@ -576,20 +576,36 @@ CREATE OR REPLACE function refresh_customer_safe()
 $$
 BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY customer_safe;
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER tgr_refresh_customer_safe
+CREATE OR REPLACE TRIGGER tgr_refresh_customer_safe
     AFTER INSERT OR UPDATE OR DELETE
     ON customers
-    FOR EACH ROW
+    FOR EACH STATEMENT
 EXECUTE FUNCTION refresh_customer_safe();
 
 -- roles and permissions
 
+ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
+
 -- passwords are just placeholders, the important parts are roles and permisisons
 -- super admin -> owner or someone
-CREATE ROLE admin WITH LOGIN SUPERUSER PASSWORD '1234';
+CREATE USER admin WITH LOGIN SUPERUSER PASSWORD 'admin_1234';
 
 -- staff are able to access bookings, create
+CREATE USER staff WITH LOGIN PASSWORD 'staff_1234';
+GRANT SELECT, INSERT, UPDATE, DELETE ON bookings TO staff;
 
+-- current_branch needs to be set for the staff who logged in
+--example: SET app.current_branch = 3;
+CREATE POLICY staff_branch_bookings
+ON bookings
+FOR ALL
+USING (
+    branch_id = current_setting('app.current_branch', true)::int
+    )
+WITH CHECK (
+    branch_id = current_setting('app.current_branch', true)::int
+    );
