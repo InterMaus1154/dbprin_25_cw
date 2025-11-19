@@ -287,11 +287,10 @@ BEGIN
                  AND branch_id = NEW.branch_id
                  AND is_active = TRUE
                  AND (TG_OP = 'INSERT'
-                   OR branch_man_id <> NEW.branch_main_id))
+                   OR branch_man_id <> NEW.branch_man_id))
     THEN
         RAISE EXCEPTION 'Staff % is already an active manager at % branch', NEW.staff_id, NEW.branch_id;
     END IF;
-
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -566,12 +565,19 @@ CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
 
 -- views
 
--- minimal information about customer
+-- minimal information about customer, including emergency phone numbers if any
 CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
 AS
-SELECT cust_fname, cust_lname, cust_contact_num, cust_postcode
-FROM customers;
+SELECT c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode, subq.emg_contact AS emergency_number
+FROM customers c
+JOIN (
+    SELECT cust_id, emg_contact
+    FROM customer_emergency_contacts
+    WHERE emg_type IN ('LANDLINE', 'MOBILE')
+) AS subq ON subq.cust_id = c.cust_id;
 
+
+-- automatically refresh customer_safe view on new action
 CREATE OR REPLACE FUNCTION refresh_customer_safe()
     RETURNS TRIGGER AS
 $$
@@ -586,6 +592,8 @@ CREATE OR REPLACE TRIGGER tgr_refresh_customer_safe
     ON customers
     FOR EACH STATEMENT
 EXECUTE FUNCTION refresh_customer_safe();
+
+-- minimal
 
 -- staff roles with role name
 CREATE MATERIALIZED VIEW IF NOT EXISTS staff_role_detailed
@@ -633,7 +641,7 @@ FROM staff s
                WHERE is_active = TRUE) AS subq ON s.staff_id = subq.staff_id
          JOIN branches b
               ON b.branch_id = subq.branch_id
-ORDER BY b.branch_id DESC;
+ORDER BY b.branch_id ASC;
 
 CREATE OR REPLACE FUNCTION refresh_branch_manager_details()
     RETURNS TRIGGER AS
@@ -652,9 +660,6 @@ CREATE OR REPLACE TRIGGER tgr_refresh_branch_manager_details
 EXECUTE FUNCTION refresh_branch_manager_details();
 
 -- roles and permissions
-
-ALTER TABLE bookings
-    ENABLE ROW LEVEL SECURITY;
 
 -- passwords are just placeholders, the important parts are roles and permisisons
 -- super admin -> owner or someone
