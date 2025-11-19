@@ -568,13 +568,14 @@ CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
 -- minimal information about customer, including emergency phone numbers if any
 CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
 AS
-SELECT c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode, subq.emg_contact AS emergency_number
+SELECT c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode, STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
 FROM customers c
-JOIN (
+LEFT JOIN (
     SELECT cust_id, emg_contact
     FROM customer_emergency_contacts
     WHERE emg_type IN ('LANDLINE', 'MOBILE')
-) AS subq ON subq.cust_id = c.cust_id;
+) AS subq ON subq.cust_id = c.cust_id
+GROUP BY c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode;
 
 
 -- automatically refresh customer_safe view on new action
