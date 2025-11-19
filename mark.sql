@@ -53,3 +53,41 @@ FROM latest_mot mt
               USING (cust_id)
 WHERE mt.rank = 1
 ORDER BY expiry_date ASC, "Status" ASC;
+
+-- performance per branch in the last 60 days
+-- with more than 10 bookings
+SELECT b.branch_name                   AS "Branch",
+       CONCAT('£', SUM(inv.inv_final)) AS "Total Income",
+       COUNT(bk_subq.booking_id)       AS "No. of Bookings",
+       ROUND(COUNT(CASE WHEN inv.inv_status = 'OVERDUE' THEN 1 END) * 100.0 / COUNT(bk_subq.booking_id),
+             2)                        AS "Overdue Payments %",
+       COUNT(CASE WHEN j.job_status = 'COMPLETED' THEN 1 END) AS "No. of Jobs Completed"
+FROM branches b
+         JOIN (SELECT *
+               FROM bookings
+               WHERE booking_date <= CURRENT_DATE - INTERVAL '60 days') AS bk_subq ON bk_subq.branch_id = b.branch_id
+         LEFT JOIN invoices inv
+                   USING (booking_id)
+         JOIN booking_services bs
+              USING (booking_id)
+         JOIN jobs j
+                USING (booking_service_id)
+GROUP BY b.branch_name, b.branch_id
+HAVING COUNT(bk_subq.booking_id) > 10
+ORDER BY "Total Income" DESC,
+         "No. of Bookings" DESC,
+         "Overdue Payments %" DESC;
+
+-- WITH filtered_bookings AS (
+--     SELECT *
+--     FROM bookings
+--     WHERE booking_date <= CURRENT_DATE - INTERVAL '60 days'
+-- ),
+--     invoice_data AS (
+--         SELECT booking_id,
+--                SUM(inv_final) AS total_inv,
+--                COUNT(CASE WHEN inv_status = 'OVERDUE' THEN 1 END) AS overdue_count
+--         FROM invoices
+--         GROUP BY booking_id
+--     );
+
