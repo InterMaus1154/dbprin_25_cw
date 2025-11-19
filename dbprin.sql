@@ -625,7 +625,6 @@ CREATE OR REPLACE trigger tgr_refresh_staff_role_detailed
     FOR EACH STATEMENT
 EXECUTE FUNCTION refresh_staff_role_detailed();
 
-
 -- branch managers with branch name and full staff name
 -- only include active managers
 CREATE MATERIALIZED VIEW IF NOT EXISTS branch_manager_details
@@ -659,8 +658,9 @@ CREATE OR REPLACE TRIGGER tgr_refresh_branch_manager_details
     FOR EACH STATEMENT
 EXECUTE FUNCTION refresh_branch_manager_details();
 
--- roles and permissions
 
+
+-- roles and permissions
 -- passwords are just placeholders, the important parts are roles and permisisons
 -- super admin -> owner or someone
 CREATE USER admin WITH LOGIN SUPERUSER PASSWORD 'admin_1234';
@@ -699,7 +699,19 @@ CREATE USER owner WITH SUPERUSER NOCREATEDB NOCREATEROLE LOGIN PASSWORD 'owner_1
 -- managers leaderships
 CREATE ROLE general_manager;
 
-
+-- Show MOT results that are expiry
+SELECT expiry_date AS "Expiry Date",
+       CASE
+           WHEN expiry_date <= CURRENT_DATE THEN 'EXPIRED'
+           WHEN expiry_date <= CURRENT_DATE + INTERVAL '7 days' THEN 'EXPIRE IN 7 DAYS'
+           WHEN expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'EXPIRE IN 30 DAYS'
+    END
+    AS "Status"
+FROM mot_results mt
+JOIN vehicles v
+    ON v.vec_id = mt.vec_id
+WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days'
+ORDER BY expiry_date ASC, "Status" ASC;
 
 
 
