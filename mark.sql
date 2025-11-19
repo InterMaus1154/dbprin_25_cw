@@ -31,6 +31,7 @@ EXECUTE FUNCTION update_vehicle_safe();
 -- Show MOTs that are either expired, or will expire in the next 7 or 30 days
 -- For identificiation it includes vehicle reg, customer full name, and customer contact number, as well as the expiry date
 WITH latest_mot AS (SELECT vec_id,
+                           expiry_date,
                            ROW_NUMBER() OVER (
                                PARTITION BY vec_id
                                ORDER BY expiry_date DESC
@@ -54,40 +55,77 @@ FROM latest_mot mt
 WHERE mt.rank = 1
 ORDER BY expiry_date ASC, "Status" ASC;
 
--- performance per branch in the last 60 days
--- with more than 10 bookings
-SELECT b.branch_name                   AS "Branch",
-       CONCAT('£', SUM(inv.inv_final)) AS "Total Income",
-       COUNT(bk_subq.booking_id)       AS "No. of Bookings",
-       ROUND(COUNT(CASE WHEN inv.inv_status = 'OVERDUE' THEN 1 END) * 100.0 / COUNT(bk_subq.booking_id),
-             2)                        AS "Overdue Payments %",
-       COUNT(CASE WHEN j.job_status = 'COMPLETED' THEN 1 END) AS "No. of Jobs Completed"
-FROM branches b
-         JOIN (SELECT *
-               FROM bookings
-               WHERE booking_date <= CURRENT_DATE - INTERVAL '60 days') AS bk_subq ON bk_subq.branch_id = b.branch_id
-         LEFT JOIN invoices inv
-                   USING (booking_id)
-         JOIN booking_services bs
-              USING (booking_id)
-         JOIN jobs j
-                USING (booking_service_id)
-GROUP BY b.branch_name, b.branch_id
-HAVING COUNT(bk_subq.booking_id) > 10
-ORDER BY "Total Income" DESC,
-         "No. of Bookings" DESC,
-         "Overdue Payments %" DESC;
 
--- WITH filtered_bookings AS (
---     SELECT *
---     FROM bookings
---     WHERE booking_date <= CURRENT_DATE - INTERVAL '60 days'
--- ),
---     invoice_data AS (
---         SELECT booking_id,
---                SUM(inv_final) AS total_inv,
---                COUNT(CASE WHEN inv_status = 'OVERDUE' THEN 1 END) AS overdue_count
---         FROM invoices
---         GROUP BY booking_id
---     );
+
+-- performance per branch in the year of 2025
+-- total number of bookings
+-- total income per branch, paid invoices only
+-- % of invoices that are overdue, compared to total per branch
+-- missing income due to not yet paid invoices
+-- total jobs completed in the branch
+-- the staff who completed the most number of jobs
+-- the number of jobs completed by that staff
+WITH filtered_bookings AS (SELECT booking_id, branch_id
+                           FROM bookings
+                           WHERE booking_date >= '2025-01-01'
+                             AND booking_date <= '2025-12-31'),
+     invoice_data AS (SELECT booking_id,
+                             SUM(inv_final) FILTER ( WHERE inv_status = 'PAID' ) AS paid_inv_final,
+                             SUM(inv_final) FILTER (WHERE inv_status != 'PAID')  AS due_inv_final,
+                             COUNT(*)                                            AS total_invoices,
+                             COUNT(CASE WHEN inv_status = 'OVERDUE' THEN 1 END)  AS overdue_count
+                      FROM invoices
+                      GROUP BY booking_id),
+     job_data AS (SELECT bs.booking_id AS booking_id,
+                         COUNT(*)      AS completed_jobs
+                  FROM booking_services bs
+                           JOIN jobs j
+                                ON j.booking_service_id = bs.booking_service_id
+                  WHERE j.job_status = 'COMPLETED'
+                    AND j.job_end >= '2025-01-01'
+                    AND j.job_end <= '2025-12-31'
+                  GROUP BY bs.booking_id),
+     staff_data AS (SELECT s.branch_id,
+                           j.staff_id,
+                           COUNT(*) AS staff_jobs_no
+                    FROM jobs j
+                             JOIN staff s
+                                  USING (staff_id)
+                    WHERE j.job_status = 'COMPLETED'
+                      AND j.job_end >= '2025-01-01'
+                      AND j.job_end <= '2025-12-31'
+                    GROUP BY s.branch_id, j.staff_id),
+     top_staff AS (SELECT branch_id, staff_id, staff_jobs_no
+                   FROM (SELECT branch_id,
+                                staff_id,
+                                staff_jobs_no,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY branch_id
+                                    ORDER BY staff_jobs_no DESC
+                                    ) AS rn
+                         FROM staff_data) ranked
+                   WHERE rn = 1)
+SELECT b.branch_name                                                                             AS "Branch",
+       COUNT(DISTINCT fb.booking_id)                                                             AS "No. of Bookings",
+       COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                                                AS "Total Branch Income (GBP)",
+       COALESCE(ROUND(SUM(id.overdue_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2), 0) AS "Overdue Invoices %",
+       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                                              AS "Due Income (GBP)",
+       COALESCE(SUM(jd.completed_jobs), 0)                                                       AS "Total Branch Jobs",
+       COALESCE(CONCAT_WS(' ', s.staff_fname, s.staff_lname), 'N/A')                             AS "Most Jobs Completed By",
+       COALESCE(ts.staff_jobs_no, 0)                                                             AS "Staff Completed Jobs"
+FROM branches b
+         LEFT JOIN filtered_bookings fb
+                   ON fb.branch_id = b.branch_id
+         LEFT JOIN invoice_data id
+                   ON id.booking_id = fb.booking_id
+         LEFT JOIN job_data jd
+                   ON jd.booking_id = fb.booking_id
+         LEFT JOIN top_staff ts
+                   ON ts.branch_id = b.branch_id
+         LEFT JOIN staff s
+                   ON s.staff_id = ts.staff_id
+GROUP BY b.branch_name, s.staff_fname, s.staff_lname, ts.staff_jobs_no
+ORDER BY "No. of Bookings" DESC,
+         "Total Branch Income (GBP)" DESC;
+
 
