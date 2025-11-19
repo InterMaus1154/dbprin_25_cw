@@ -701,7 +701,42 @@ CREATE USER owner WITH SUPERUSER NOCREATEDB NOCREATEROLE LOGIN PASSWORD 'owner_1
 CREATE ROLE general_manager;
 
 
+-- vehicles_public view: exposes non-sensitive vehicle fields (HIDE vec_vin)
+-- Intended for receptionists and mechanics who need reg/model/year but not VIN
+CREATE VIEW public.vehicles_public WITH (security_barrier) AS
+SELECT
+    vec_id,
+    vec_brand_id,
+    cust_id,
+    vec_model,
+    vec_reg,
+    vec_year,
+    vec_colour,
+    vec_fuel_type
+FROM vehicles;
+
+-- Grant read access to typical application roles; adjust role names as needed
+GRANT SELECT ON public.vehicles_public TO receptionist, mechanic, branch_manager;
 
 
+-- vehicles_full view: exposes all vehicle fields (including vec_vin) for trusted roles
+-- WARNING: vec_vin is sensitive; grant this view only to admin/finance roles and audit its use.
+CREATE VIEW public.vehicles_full WITH (security_barrier) AS
+SELECT
+    vec_id,
+    vec_brand_id,
+    cust_id,
+    vec_model,
+    vec_reg,
+    vec_year,
+    vec_colour,
+    vec_vin,
+    vec_fuel_type
+FROM vehicles;
+
+-- Grant full vehicle read access (including VIN) to admin and finance 
+GRANT SELECT ON public.vehicles_full TO admin, finance;
+
+--Adding this so I can commit it again lol
 
 
