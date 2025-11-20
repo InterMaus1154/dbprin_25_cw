@@ -133,6 +133,10 @@ ORDER BY "Branch Total Income Rank",
          "No. of Bookings" DESC,
          "Total Branch Income (GBP)" DESC;
 
+
+-- triggers
+
+
 -- do not allow insertion into part usage, if the current stock quantity in the branch is less than what is required
 CREATE OR REPLACE FUNCTION check_stock_level_for_part_usage()
     RETURNS TRIGGER AS

@@ -276,37 +276,6 @@ CREATE TABLE branch_managers
 
 CREATE INDEX idx_branch_manager_branch_active ON branch_managers (branch_id, is_active);
 
---- Prevent inserting the same staff for the same branch as manager, if they are already an active manager there
-CREATE OR REPLACE FUNCTION check_same_branch_manager()
-    RETURNS TRIGGER AS
-$$
-BEGIN
-    IF EXISTS (SELECT 1
-               FROM branch_managers
-               WHERE staff_id = NEW.staff_id
-                 AND branch_id = NEW.branch_id
-                 AND is_active = TRUE
-                 AND (TG_OP = 'INSERT'
-                   OR branch_man_id <> NEW.branch_man_id))
-    THEN
-        RAISE EXCEPTION 'Staff % is already an active manager at branch %', NEW.staff_id, NEW.branch_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER tgr_check_same_branch_manager
-    BEFORE INSERT
-    ON branch_managers
-    FOR EACH ROW
-EXECUTE FUNCTION check_same_branch_manager();
-
-CREATE TRIGGER tgr_check_same_branch_manager_update
-    BEFORE UPDATE
-    ON branch_managers
-    FOR EACH ROW
-EXECUTE FUNCTION check_same_branch_manager();
-
 CREATE TABLE roles
 (
     role_id   SERIAL PRIMARY KEY,
@@ -564,106 +533,10 @@ CREATE TABLE feedback_replies
 CREATE INDEX idx_feedback_replies_feedback ON feedback_replies (cust_fb_id);
 CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
 
--- views
-
--- minimal information about customer, including emergency phone numbers if any
-CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
-AS
-SELECT c.cust_id,
-       c.cust_fname,
-       c.cust_lname,
-       c.cust_contact_num,
-       c.cust_postcode,
-       STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
-FROM customers c
-         LEFT JOIN (SELECT cust_id, emg_contact
-                    FROM customer_emergency_contacts
-                    WHERE emg_type IN ('LANDLINE', 'MOBILE')) AS subq ON subq.cust_id = c.cust_id
-GROUP BY c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode;
 
 
--- automatically refresh customer_safe view on new action
-CREATE OR REPLACE FUNCTION refresh_customer_safe()
-    RETURNS TRIGGER AS
-$$
-BEGIN
-    REFRESH MATERIALIZED VIEW customer_safe;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER tgr_refresh_customer_safe
-    AFTER INSERT OR UPDATE OR DELETE
-    ON customers
-    FOR EACH STATEMENT
-EXECUTE FUNCTION refresh_customer_safe();
-
--- minimal
-
--- staff roles with role name
-CREATE MATERIALIZED VIEW IF NOT EXISTS staff_role_detailed
-AS
-SELECT s.staff_id,
-       CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
-       r.role_id,
-       r.role_name
-FROM staff s
-         JOIN staff_roles
-              USING (staff_id)
-         JOIN roles r
-              USING (role_id)
-ORDER BY s.staff_fname ASC, s.staff_lname ASC;
-
-CREATE OR REPLACE FUNCTION refresh_staff_role_detailed()
-    RETURNS TRIGGER AS
-$$
-BEGIN
-    REFRESH MATERIALIZED VIEW staff_role_detailed;
-    RETURN NULL;
-END;
-$$
-    LANGUAGE plpgsql;
-
-CREATE OR REPLACE trigger tgr_refresh_staff_role_detailed
-    AFTER INSERT OR UPDATE OR DELETE
-    ON staff_roles
-    FOR EACH STATEMENT
-EXECUTE FUNCTION refresh_staff_role_detailed();
 
 
--- branch managers with branch name and full staff name
--- only include active managers
-CREATE MATERIALIZED VIEW IF NOT EXISTS branch_manager_details
-AS
-SELECT s.staff_id,
-       CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
-       b.branch_id,
-       b.branch_code,
-       b.branch_name,
-       subq.assigned_at                             AS manager_from
-FROM staff s
-         JOIN (SELECT staff_id, branch_id, assigned_at
-               FROM branch_managers
-               WHERE is_active = TRUE) AS subq ON s.staff_id = subq.staff_id
-         JOIN branches b
-              ON b.branch_id = subq.branch_id
-ORDER BY b.branch_id ASC;
-
-CREATE OR REPLACE FUNCTION refresh_branch_manager_details()
-    RETURNS TRIGGER AS
-$$
-BEGIN
-    REFRESH MATERIALIZED VIEW branch_manager_details;
-    RETURN NULL;
-END;
-$$
-    LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER tgr_refresh_branch_manager_details
-    AFTER INSERT OR UPDATE OR DELETE
-    ON branch_managers
-    FOR EACH STATEMENT
-EXECUTE FUNCTION refresh_branch_manager_details();
 
 -- roles and permissions
 
