@@ -500,6 +500,7 @@ CREATE TABLE part_transfers
     transfer_status transfer_status NOT NULL DEFAULT 'REQUESTED',
     transfer_note   TEXT,
     CHECK (from_branch_id <> to_branch_id),
+    CHECK (requested_by <> approved_by),
     CHECK (quantity > 0),
     CHECK (requested_at <= transfer_date),
     FOREIGN KEY (part_id) REFERENCES parts (part_id),

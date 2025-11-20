@@ -133,8 +133,8 @@ ORDER BY "Branch Total Income Rank",
          "No. of Bookings" DESC,
          "Total Branch Income (GBP)" DESC;
 
-
-CREATE OR REPLACE FUNCTION check_stock_level()
+-- do not allow insertion into part usage, if the current stock quantity in the branch is less than what is required
+CREATE OR REPLACE FUNCTION check_stock_level_for_part_usage()
     RETURNS TRIGGER AS
 $$
 DECLARE
@@ -161,8 +161,52 @@ END;
 $$
     LANGUAGE plpgsql;
 
-CREATE OR REPLACE TRIGGER tgr_check_stock_level
+CREATE OR REPLACE TRIGGER tgr_check_stock_level_for_part_usage
     BEFORE INSERT
     ON part_usage
     FOR EACH ROW
-EXECUTE FUNCTION check_stock_level();
+EXECUTE FUNCTION check_stock_level_for_part_usage();
+
+-- do not allow insertion of part transfer, if the stock level at the from branch is less than the required
+CREATE OR REPLACE FUNCTION check_stock_level_for_part_transfer()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    current_stock_quantity     INTEGER := 0;
+    requested_quantity INTEGER := NEW.quantity;
+BEGIN
+    SELECT bp.quantity
+    INTO current_stock_quantity
+    FROM branch_parts bp
+    WHERE bp.part_id = NEW.part_id
+      AND bp.branch_id = NEW.from_branch_id;
+
+    IF current_stock_quantity < requested_quantity THEN
+        RAISE EXCEPTION 'There are not enough parts available in branch %', NEW.from_branch_id;
+    END IF;
+    RETURN NEW;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_stock_level_for_part_transfer
+    BEFORE INSERT
+    ON part_transfers
+    FOR EACH ROW
+EXECUTE FUNCTION check_stock_level_for_part_transfer();
+
+
+-- do not allow insertion or update, if the approved_by is not the manager of the branch where it is being transferred to
+CREATE OR REPLACE FUNCTION check_for_correct_approval_staff_for_part_transfer()
+RETURNS TRIGGER AS
+    $$
+    DECLARE
+        approved_by INTEGER := NEW.approved_by;
+        branch_manager INTEGER;
+    BEGIN
+        IF approved_by IS NOT NULL THEN
+
+        END IF;
+    END;
+    $$
+LANGUAGE plpgsql;
