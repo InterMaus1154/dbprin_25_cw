@@ -139,22 +139,30 @@ CREATE OR REPLACE FUNCTION check_stock_level_for_part_usage()
 $$
 DECLARE
     current_part_quantity INTEGER;
+    job_branch_id         INTEGER;
 BEGIN
-    SELECT bp.quantity
-    INTO current_part_quantity
-    FROM part_usage pu
-             JOIN jobs j
-                  USING (job_id)
+    -- get current branch
+    SELECT s.branch_id
+    INTO job_branch_id
+    FROM jobs j
              JOIN staff s
                   USING (staff_id)
-             JOIN branches b
-                  USING (branch_id)
-             JOIN branch_parts bp
-                  USING (branch_id)
-    WHERE pu.part_id = NEW.part_id;
+    WHERE j.job_id = NEW.job_id;
+
+    -- check stock level at branch
+    SELECT bp.quantity
+    INTO current_part_quantity
+    FROM branch_parts bp
+    WHERE bp.branch_id = job_branch_id
+      AND bp.part_id = NEW.part_id;
+
+    -- if part doesnt exist
+    if current_part_quantity IS NULL THEN
+        RAISE EXCEPTION 'Part id % is not available at branch id %', NEW.part_id, job_branch_id;
+    end if;
 
     IF current_part_quantity < NEW.quantity THEN
-        RAISE EXCEPTION 'Quantity is less than available in the branch';
+        RAISE EXCEPTION 'Quantity is less than available in the branch, available is %, but requested is %', current_part_quantity, NEW.quantity;
     END IF;
     RETURN NEW;
 END;
@@ -172,8 +180,7 @@ CREATE OR REPLACE FUNCTION check_stock_level_for_part_transfer()
     RETURNS TRIGGER AS
 $$
 DECLARE
-    current_stock_quantity     INTEGER := 0;
-    requested_quantity INTEGER := NEW.quantity;
+    current_stock_quantity INTEGER;
 BEGIN
     SELECT bp.quantity
     INTO current_stock_quantity
@@ -181,7 +188,11 @@ BEGIN
     WHERE bp.part_id = NEW.part_id
       AND bp.branch_id = NEW.from_branch_id;
 
-    IF current_stock_quantity < requested_quantity THEN
+    IF current_stock_quantity IS NULL THEN
+        RAISE EXCEPTION 'Part % does not exist at branch %', NEW.part_id, NEW.from_branch_id;
+    END IF;
+
+    IF current_stock_quantity < NEW.quantity THEN
         RAISE EXCEPTION 'There are not enough parts available in branch %', NEW.from_branch_id;
     END IF;
     RETURN NEW;
@@ -198,15 +209,36 @@ EXECUTE FUNCTION check_stock_level_for_part_transfer();
 
 -- do not allow insertion or update, if the approved_by is not the manager of the branch where it is being transferred to
 CREATE OR REPLACE FUNCTION check_for_correct_approval_staff_for_part_transfer()
-RETURNS TRIGGER AS
-    $$
-    DECLARE
-        approved_by INTEGER := NEW.approved_by;
-        branch_manager INTEGER;
-    BEGIN
-        IF approved_by IS NOT NULL THEN
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    is_valid_manager INTEGER;
+BEGIN
+    -- a staff cannot approve their own request
+    IF NEW.approved_by = NEW.requested_by THEN
+        RAISE EXCEPTION 'A staff cannot approve their own transfer request!';
+    END IF;
 
-        END IF;
-    END;
-    $$
-LANGUAGE plpgsql;
+    -- a staff has to be manager at the to_branch_id
+    SELECT EXISTS (SELECT 1
+                   FROM branch_managers bm
+                   WHERE bm.branch_id = NEW.to_branch_id
+                     AND bm.staff_id = NEW.approved_by
+                     AND bm.is_active)
+    INTO is_valid_manager;
+
+    -- no result was found
+    IF NOT is_valid_manager THEN
+        RAISE EXCEPTION 'A manager at branch id % needs to approve this request!', NEW.to_branch_id;
+    end if;
+
+    RETURN NEW;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_for_correct_approval_staff_for_part_transfer
+    BEFORE INSERT OR UPDATE
+    ON part_transfers
+    FOR EACH ROW
+EXECUTE FUNCTION check_for_correct_approval_staff_for_part_transfer();
