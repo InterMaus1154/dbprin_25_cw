@@ -199,3 +199,37 @@ CREATE OR REPLACE TRIGGER tgr_check_for_correct_approval_staff_for_part_transfer
     ON part_transfers
     FOR EACH ROW
 EXECUTE FUNCTION check_for_correct_approval_staff_for_part_transfer();
+
+-- update stock levels after a part_transfer is completed
+CREATE OR REPLACE FUNCTION update_stock_levels_after_part_transfer()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    -- only proceed if transfer was completed
+    IF NEW.transfer_status = 'COMPLETED' AND (OLD IS NULL OR OLD.transfer_status <> 'COMPLETED') THEN
+        -- decrease at branch it was transferred from
+        UPDATE branch_parts
+        SET quantity = quantity - NEW.quantity
+        WHERE branch_id = NEW.from_branch_id
+          AND part_id = NEW.part_id;
+
+        -- increase stock at transferred to branch
+        -- create new record, or update
+        INSERT INTO branch_parts (branch_id, part_id, quantity)
+        VALUES (NEW.to_branch_id, NEW.part_id, NEW.quantity)
+        ON CONFLICT (branch_id, part_id)
+            DO UPDATE SET quantity = branch_parts.quantity + EXCLUDED.quantity;
+    END IF;
+
+    RETURN NEW;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_update_stock_levels_after_part_transfer
+    AFTER INSERT OR UPDATE
+    ON part_transfers
+    FOR EACH ROW
+    WHEN (NEW.transfer_status = 'COMPLETED')
+EXECUTE FUNCTION check_stock_level_for_part_usage();
+
