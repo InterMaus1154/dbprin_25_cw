@@ -49,3 +49,18 @@ FROM staff s
          JOIN branches b
               ON b.branch_id = subq.branch_id
 ORDER BY b.branch_id ASC;
+
+-- excluding VIN, and joining brand name
+CREATE MATERIALIZED VIEW IF NOT EXISTS vehicle_safe
+AS
+SELECT v.vec_id,
+       vb.vec_brand_name,
+       v.cust_id,
+       v.vec_model,
+       v.vec_reg,
+       v.vec_year,
+       v.vec_colour,
+       v.vec_fuel_type
+FROM vehicles v
+         JOIN vehicle_brands vb
+              USING (vec_brand_id);
