@@ -73,7 +73,7 @@ WITH filtered_bookings AS (SELECT booking_id, branch_id
                              SUM(inv_final) FILTER ( WHERE inv_status = 'PAID' ) AS paid_inv_final,
                              SUM(inv_final) FILTER (WHERE inv_status != 'PAID')  AS due_inv_final,
                              COUNT(*)                                            AS total_invoices,
-                             COUNT(CASE WHEN inv_status = 'OVERDUE' THEN 1 END)  AS overdue_count
+                             COUNT(CASE WHEN inv_status != 'PAID' THEN 1 END)    AS due_count
                       FROM invoices
                       GROUP BY booking_id),
      job_data AS (SELECT bs.booking_id AS booking_id,
@@ -105,15 +105,18 @@ WITH filtered_bookings AS (SELECT booking_id, branch_id
                                     ) AS rn
                          FROM staff_data) ranked
                    WHERE rn = 1)
-SELECT b.branch_name                                                 AS "Branch",
-       COUNT(DISTINCT fb.booking_id)                                 AS "No. of Bookings",
-       COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                    AS "Total Branch Income (GBP)",
-       COALESCE(ROUND(SUM(id.overdue_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2),
-                0)                                                   AS "Overdue Invoices %",
-       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                  AS "Due Income (GBP)",
-       COALESCE(SUM(jd.completed_jobs), 0)                           AS "Total Branch Jobs",
-       COALESCE(CONCAT_WS(' ', s.staff_fname, s.staff_lname), 'N/A') AS "Most Jobs Completed By",
-       COALESCE(ts.staff_jobs_no, 0)                                 AS "Staff Completed Jobs"
+SELECT RANK()
+       OVER (ORDER BY SUM(COALESCE(id.paid_inv_final, 0) + COALESCE(id.due_inv_final, 0)) DESC) AS "Branch Total Income Rank",
+       b.branch_name                                                                            AS "Branch",
+       COUNT(DISTINCT fb.booking_id)                                                            AS "No. of Bookings",
+       COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                                               AS "Total Branch Income (GBP)",
+       CONCAT(COALESCE(ROUND(SUM(id.due_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2),
+                       0), '%')                                                                 AS "Due Invoices %",
+       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                                             AS "Due Income (GBP)",
+       COALESCE(SUM(jd.completed_jobs), 0)                                                      AS "Total Branch Jobs",
+       COALESCE(MAX(CONCAT_WS(' ', s.staff_fname, s.staff_lname)),
+                'N/A')                                                                          AS "Most Jobs Completed By",
+       COALESCE(MAX(ts.staff_jobs_no), 0)                                                       AS "Staff Completed Jobs"
 FROM branches b
          LEFT JOIN filtered_bookings fb
                    ON fb.branch_id = b.branch_id
@@ -125,8 +128,41 @@ FROM branches b
                    ON ts.branch_id = b.branch_id
          LEFT JOIN staff s
                    ON s.staff_id = ts.staff_id
-GROUP BY b.branch_name, s.staff_fname, s.staff_lname, ts.staff_jobs_no
-ORDER BY "No. of Bookings" DESC,
+GROUP BY b.branch_name
+ORDER BY "Branch Total Income Rank",
+         "No. of Bookings" DESC,
          "Total Branch Income (GBP)" DESC;
 
 
+CREATE OR REPLACE FUNCTION check_stock_level()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    current_part_quantity INTEGER;
+BEGIN
+    SELECT bp.quantity
+    INTO current_part_quantity
+    FROM part_usage pu
+             JOIN jobs j
+                  USING (job_id)
+             JOIN staff s
+                  USING (staff_id)
+             JOIN branches b
+                  USING (branch_id)
+             JOIN branch_parts bp
+                  USING (branch_id)
+    WHERE pu.part_id = NEW.part_id;
+
+    IF current_part_quantity < NEW.quantity THEN
+        RAISE EXCEPTION 'Quantity is less than available in the branch';
+    END IF;
+    RETURN NEW;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_stock_level
+    BEFORE INSERT
+    ON part_usage
+    FOR EACH ROW
+EXECUTE FUNCTION check_stock_level();

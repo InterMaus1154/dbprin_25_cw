@@ -289,7 +289,7 @@ BEGIN
                  AND (TG_OP = 'INSERT'
                    OR branch_man_id <> NEW.branch_man_id))
     THEN
-        RAISE EXCEPTION 'Staff % is already an active manager at % branch', NEW.staff_id, NEW.branch_id;
+        RAISE EXCEPTION 'Staff % is already an active manager at branch %', NEW.staff_id, NEW.branch_id;
     END IF;
     RETURN NEW;
 END;
@@ -568,13 +568,16 @@ CREATE INDEX idx_feedback_replies_parent ON feedback_replies (reply_to);
 -- minimal information about customer, including emergency phone numbers if any
 CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
 AS
-SELECT c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode, STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
+SELECT c.cust_id,
+       c.cust_fname,
+       c.cust_lname,
+       c.cust_contact_num,
+       c.cust_postcode,
+       STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
 FROM customers c
-LEFT JOIN (
-    SELECT cust_id, emg_contact
-    FROM customer_emergency_contacts
-    WHERE emg_type IN ('LANDLINE', 'MOBILE')
-) AS subq ON subq.cust_id = c.cust_id
+         LEFT JOIN (SELECT cust_id, emg_contact
+                    FROM customer_emergency_contacts
+                    WHERE emg_type IN ('LANDLINE', 'MOBILE')) AS subq ON subq.cust_id = c.cust_id
 GROUP BY c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode;
 
 
@@ -635,9 +638,10 @@ SELECT s.staff_id,
        CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
        b.branch_id,
        b.branch_code,
-       b.branch_name
+       b.branch_name,
+       subq.assigned_at                             AS manager_from
 FROM staff s
-         JOIN (SELECT staff_id, branch_id
+         JOIN (SELECT staff_id, branch_id, assigned_at
                FROM branch_managers
                WHERE is_active = TRUE) AS subq ON s.staff_id = subq.staff_id
          JOIN branches b
@@ -704,15 +708,14 @@ CREATE ROLE general_manager;
 -- vehicles_public view: exposes non-sensitive vehicle fields (HIDE vec_vin)
 -- Intended for receptionists and mechanics who need reg/model/year but not VIN
 CREATE VIEW public.vehicles_public WITH (security_barrier) AS
-SELECT
-    vec_id,
-    vec_brand_id,
-    cust_id,
-    vec_model,
-    vec_reg,
-    vec_year,
-    vec_colour,
-    vec_fuel_type
+SELECT vec_id,
+       vec_brand_id,
+       cust_id,
+       vec_model,
+       vec_reg,
+       vec_year,
+       vec_colour,
+       vec_fuel_type
 FROM vehicles;
 
 -- Grant read access to typical application roles; adjust role names as needed
@@ -722,21 +725,21 @@ GRANT SELECT ON public.vehicles_public TO receptionist, mechanic, branch_manager
 -- vehicles_full view: exposes all vehicle fields (including vec_vin) for trusted roles
 -- WARNING: vec_vin is sensitive; grant this view only to admin/finance roles and audit its use.
 CREATE VIEW public.vehicles_full WITH (security_barrier) AS
-SELECT
-    vec_id,
-    vec_brand_id,
-    cust_id,
-    vec_model,
-    vec_reg,
-    vec_year,
-    vec_colour,
-    vec_vin,
-    vec_fuel_type
+SELECT vec_id,
+       vec_brand_id,
+       cust_id,
+       vec_model,
+       vec_reg,
+       vec_year,
+       vec_colour,
+       vec_vin,
+       vec_fuel_type
 FROM vehicles;
 
 -- Grant full vehicle read access (including VIN) to admin and finance 
 GRANT SELECT ON public.vehicles_full TO admin, finance;
 
 --Adding this so I can commit it again lol
+-- No
 
 
