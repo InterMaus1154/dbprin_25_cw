@@ -37,7 +37,7 @@ WITH latest_mot AS (SELECT vec_id,
                                ORDER BY expiry_date DESC
                                ) AS rank
                     FROM mot_results
-                    WHERE expiry_date <= CURRENT_DATE)
+                    WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days')
 SELECT v.vec_reg                                  AS "Registration",
        CONCAT_WS(' ', c.cust_fname, c.cust_lname) AS "Customer",
        c.cust_contact_num                         AS "Contact Number",
@@ -105,14 +105,15 @@ WITH filtered_bookings AS (SELECT booking_id, branch_id
                                     ) AS rn
                          FROM staff_data) ranked
                    WHERE rn = 1)
-SELECT b.branch_name                                                                             AS "Branch",
-       COUNT(DISTINCT fb.booking_id)                                                             AS "No. of Bookings",
-       COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                                                AS "Total Branch Income (GBP)",
-       COALESCE(ROUND(SUM(id.overdue_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2), 0) AS "Overdue Invoices %",
-       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                                              AS "Due Income (GBP)",
-       COALESCE(SUM(jd.completed_jobs), 0)                                                       AS "Total Branch Jobs",
-       COALESCE(CONCAT_WS(' ', s.staff_fname, s.staff_lname), 'N/A')                             AS "Most Jobs Completed By",
-       COALESCE(ts.staff_jobs_no, 0)                                                             AS "Staff Completed Jobs"
+SELECT b.branch_name                                                 AS "Branch",
+       COUNT(DISTINCT fb.booking_id)                                 AS "No. of Bookings",
+       COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                    AS "Total Branch Income (GBP)",
+       COALESCE(ROUND(SUM(id.overdue_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2),
+                0)                                                   AS "Overdue Invoices %",
+       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                  AS "Due Income (GBP)",
+       COALESCE(SUM(jd.completed_jobs), 0)                           AS "Total Branch Jobs",
+       COALESCE(CONCAT_WS(' ', s.staff_fname, s.staff_lname), 'N/A') AS "Most Jobs Completed By",
+       COALESCE(ts.staff_jobs_no, 0)                                 AS "Staff Completed Jobs"
 FROM branches b
          LEFT JOIN filtered_bookings fb
                    ON fb.branch_id = b.branch_id
