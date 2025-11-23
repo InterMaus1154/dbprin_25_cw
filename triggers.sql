@@ -251,3 +251,39 @@ CREATE OR REPLACE trigger tgr_prevent_paid_invoice_deletion
     ON invoices
     FOR EACH ROW
 EXECUTE FUNCTION prevent_paid_invoice_deletion();
+
+-- automatically set invoice to paid if all installments are paid
+CREATE OR REPLACE FUNCTION update_invoice_status()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    -- check if all installments of an invoice are
+    IF NOT EXISTS (SELECT 1
+                   FROM installments inst
+                   WHERE inst.inv_id = NEW.inv_id
+                     AND inst.inst_status != 'PAID')
+    THEN
+        UPDATE invoices
+        SET inv_status = 'PAID'
+        WHERE inv_id = NEW.inv_id;
+    END IF;
+
+    -- check if current installment is overdue
+    -- if installment is overdue, set invoice as overdue
+    IF NEW.inst_status = 'OVERDUE'
+    THEN
+        UPDATE invoices
+        SET inv_status = 'OVERDUE'
+        WHERE inv_id = NEW.inv_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_update_invoice_status
+    AFTER UPDATE
+    ON installments
+    FOR EACH ROW
+EXECUTE FUNCTION update_invoice_status();
