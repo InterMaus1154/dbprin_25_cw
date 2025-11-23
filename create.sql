@@ -613,7 +613,6 @@ FROM vehicles;
 -- Grant full vehicle read access (including VIN) to admin and finance 
 GRANT SELECT ON public.vehicles_full TO admin, finance;
 
---Adding this so I can commit it again lol
--- No
+CREATE ROLE data_analyst;
 
 
