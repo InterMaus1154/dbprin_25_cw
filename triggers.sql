@@ -233,3 +233,21 @@ CREATE OR REPLACE TRIGGER tgr_update_stock_levels_after_part_transfer
     WHEN (NEW.transfer_status = 'COMPLETED')
 EXECUTE FUNCTION check_stock_level_for_part_usage();
 
+-- prevent deleting paid invoices
+CREATE OR REPLACE FUNCTION prevent_paid_invoice_deletion()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    IF OLD.inv_status = 'PAID' THEN
+        RAISE EXCEPTION 'Paid invoice deletion is not allowed on invoice id %', OLD.inv_id;
+    END IF;
+    RETURN OLD;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE trigger tgr_prevent_paid_invoice_deletion
+    BEFORE DELETE
+    ON invoices
+    FOR EACH ROW
+EXECUTE FUNCTION prevent_paid_invoice_deletion();

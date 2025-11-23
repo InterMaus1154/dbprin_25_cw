@@ -106,6 +106,5 @@ ORDER BY "Branch Total Income Rank",
          "Total Branch Income (GBP)" DESC;
 
 
--- triggers
 
 
