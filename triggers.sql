@@ -287,3 +287,37 @@ CREATE OR REPLACE TRIGGER tgr_update_invoice_status
     ON installments
     FOR EACH ROW
 EXECUTE FUNCTION update_invoice_status();
+
+-- check if a bay assigned to a job is available or not
+-- reject job if not available
+CREATE OR REPLACE FUNCTION check_bay_status()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    current_bay_status bay_status;
+BEGIN
+    SELECT bay_status
+    INTO current_bay_status
+    FROM bays
+    WHERE bay_id = NEW.bay_id;
+
+    -- reject bay if not available
+    IF current_bay_status != 'AVAILABLE' THEN
+        RAISE EXCEPTION 'Bay % is not available!', NEW.bay_id;
+    end if;
+
+    -- update bay status to occupied
+    UPDATE bays
+    SET bay_status = 'OCCUPIED'
+    WHERE bay_id = NEW.bay_id;
+
+    RETURN NEW;
+END;
+$$
+    LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_bay_status
+    BEFORE INSERT
+    ON jobs
+    FOR EACH ROW
+EXECUTE FUNCTION check_bay_status();
