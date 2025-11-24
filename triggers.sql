@@ -321,3 +321,170 @@ CREATE OR REPLACE TRIGGER tgr_check_bay_status
     ON jobs
     FOR EACH ROW
 EXECUTE FUNCTION check_bay_status();
+
+-- before invoice insertion, automatically get money for total services, then discount, and subtract discount for the final amount to be paid
+
+CREATE OR REPLACE FUNCTION calculate_invoice_amount()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    total                     DECIMAL(10, 2) := 0.00;
+    temp_total                DECIMAL(10, 2) := 0.00;
+    service_discounts         DECIMAL        := 0.00;
+    service_package_discounts DECIMAL        := 0.00;
+    total_discount            DECIMAL(10, 2) := 0.00;
+    membership_discount       DECIMAL        := 0.00;
+    temp_membership_discount  DECIMAL        := 0.00;
+    membership_id             INTEGER;
+BEGIN
+
+    -- check if the customer has membership
+    SELECT customers.mship_id
+    INTO membership_id
+    FROM bookings
+             JOIN vehicles
+                  USING (vec_id)
+             JOIN customers
+                  USING (cust_id)
+    WHERE bookings.booking_id = NEW.booking_id
+      AND customers.mship_id IS NOT NULL;
+
+
+    -- a booking may only have services from packages, not individual services
+    IF EXISTS(SELECT 1
+              FROM booking_services
+              WHERE booking_services.booking_id = NEW.booking_id)
+    THEN
+        -- calculate the total from booking_services
+        SELECT COALESCE(SUM(service_price), 0)
+        INTO total
+        FROM booking_services
+                 JOIN services
+                      USING (service_id)
+        WHERE booking_id = NEW.booking_id;
+
+        -- calculate service_discounts
+        SELECT COALESCE(SUM(sd.disc_amount), 0)
+        INTO service_discounts
+        FROM booking_services bs
+                 JOIN service_discounts sd
+                      ON bs.service_id = sd.service_id AND sd.is_active = TRUE
+        WHERE bs.booking_id = NEW.booking_id;
+
+    END IF;
+
+    IF EXISTS(SELECT 1
+              FROM booking_packages
+              WHERE booking_packages.booking_id = NEW.booking_id) THEN
+
+        -- calculate the sum of booking package services
+        SELECT COALESCE(SUM(s.service_price), 0)
+        INTO temp_total
+        FROM booking_packages
+                 JOIN packages
+                      USING (pkg_id)
+                 JOIN package_services
+                      USING (pkg_id)
+                 JOIN services s
+                      USING (service_id)
+        WHERE booking_packages.booking_id = NEW.booking_id;
+
+        -- calculate discounts for services in the packages
+        SELECT COALESCE(SUM(sd.disc_amount), 0)
+        INTO service_package_discounts
+        FROM booking_packages
+                 JOIN packages
+                      USING (pkg_id)
+                 JOIN package_services
+                      USING (pkg_id)
+                 JOIN service_discounts sd
+                      USING (service_id)
+        WHERE booking_packages.booking_id = NEW.booking_id
+          AND sd.is_active = TRUE;
+
+    END IF;
+
+    -- calculate membership discounts
+    IF membership_id IS NOT NULL THEN
+        -- calculate for individual services
+        IF EXISTS(SELECT 1
+                  FROM booking_services
+                  WHERE booking_id = NEW.booking_id)
+        THEN
+
+            SELECT COALESCE(SUM(
+                                    CASE
+                                        WHEN discount_type = 'FIXED' THEN discount_value
+                                        WHEN discount_type = 'PERCENT' THEN service_price * (discount_value / 100)
+                                        END
+                            ), 0)
+            INTO membership_discount
+            FROM bookings b
+                     JOIN vehicles
+                          USING (vec_id)
+                     JOIN customers
+                          USING (cust_id)
+                     JOIN membership_services ms
+                          USING (mship_id)
+                     JOIN booking_services bs
+                          ON ms.service_id = bs.service_id
+                              AND bs.booking_id = NEW.booking_id
+                     JOIN services s
+                          ON bs.service_id = s.service_id
+            WHERE b.booking_id = NEW.booking_id;
+        END IF;
+
+        -- calculate for package services
+        IF EXISTS(SELECT 1
+                  FROM booking_packages
+                  WHERE booking_id = NEW.booking_id)
+        THEN
+
+            SELECT COALESCE(SUM(
+                                    CASE
+                                        WHEN discount_type = 'FIXED' THEN discount_value
+                                        WHEN discount_type = 'PERCENT' THEN service_price * (discount_value / 100)
+                                        END
+                            ), 0)
+            INTO temp_membership_discount
+            FROM bookings b
+                     JOIN vehicles
+                          USING (vec_id)
+                     JOIN customers
+                          USING (cust_id)
+                     JOIN membership_services ms
+                          USING (mship_id)
+                     JOIN booking_packages bp
+                          ON bp.booking_id = NEW.booking_id
+                     JOIN packages
+                          USING (pkg_id)
+                     JOIN package_services ps
+                          ON ms.service_id = ps.service_id AND ps.pkg_id = bp.pkg_id
+                     JOIN services s
+                          ON ps.service_id = s.service_id
+            WHERE b.booking_id = NEW.booking_id;
+        END IF;
+    END IF;
+
+    -- add the package + service price
+    total := total + temp_total;
+    NEW.inv_total := total;
+
+    -- calculate total discount
+    total_discount := service_discounts + service_package_discounts + membership_discount + temp_membership_discount;
+    NEW.inv_discount := total_discount;
+
+    -- calculate final amount
+    NEW.inv_final := total - total_discount;
+
+    RETURN NEW;
+
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE TRIGGER tgr_calculate_invoice_amount
+    BEFORE INSERT
+    ON invoices
+    FOR EACH ROW
+EXECUTE FUNCTION calculate_invoice_amount();
