@@ -125,7 +125,8 @@ CREATE VIEW active_customer_memberships AS
 SELECT c.cust_id,
        c.cust_fname,
        c.cust_lname,
-       m.mship_name
+       m.mship_name,
+       c.mship_end_date
 FROM customer_safe c
          JOIN memberships m
               USING (mship_id)
