@@ -105,3 +105,6 @@ WHERE
 ORDER BY
     bp.quantity ASC,
     ps.unit_cost DESC;
+
+
+-- A simple example query, that can be run as a data_analyst, using the views they have access to

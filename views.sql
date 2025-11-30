@@ -64,3 +64,117 @@ SELECT v.vec_id,
 FROM vehicles v
          JOIN vehicle_brands vb
               USING (vec_brand_id);
+
+-- show branch stock with part names and branch codes for better readability
+-- not MV, as it is updated regularly
+CREATE VIEW branch_part_detailed
+AS
+SELECT b.branch_code AS "Branch Code",
+       p.part_name   AS "Part",
+       bp.quantity   AS "Quantity"
+FROM parts p
+         LEFT JOIN branch_parts bp
+                   ON bp.part_id = p.part_id
+         LEFT JOIN branches b
+                   ON b.branch_id = bp.branch_id
+ORDER BY b.branch_code;
+
+-- Views for data_analyst role
+-- These views include just minimal data, and excluding as much personal information as possible, since it is not required for analysts to do calculations and statistics
+
+CREATE VIEW vehicle_analyst
+AS
+SELECT vec_id,
+       vec_brand_id,
+       cust_id,
+       vec_model,
+       vec_year,
+       vec_fuel_type
+FROM vehicles;
+
+CREATE VIEW customer_analyst
+AS
+SELECT cust_id,
+       mship_id,
+       mship_start_date,
+       mship_end_date,
+       mship_auto_renew,
+       cust_city -- included for city level groupings if ever required
+FROM customers;
+
+CREATE VIEW staff_analyst
+AS
+SELECT staff_id,
+       branch_id,
+       staff_city
+FROM staff;
+
+CREATE VIEW bay_analyst
+AS
+SELECT bay_id,
+       branch_id,
+       bay_capacity
+FROM bays;
+
+CREATE VIEW branch_analyst
+AS
+SELECT branch_id,
+       branch_code,
+       branch_name,
+       branch_city
+FROM branches;
+
+CREATE VIEW supplier_analyst
+AS
+SELECT sup_id,
+       sup_city,
+       is_active
+FROM suppliers;
+
+-- only completed part transfers
+CREATE VIEW part_transfer_analyst
+AS
+SELECT transfer_id,
+       part_id,
+       from_branch_id,
+       to_branch_id,
+       quantity,
+       transfer_date
+FROM part_transfers
+WHERE transfer_status = 'COMPLETED';
+
+CREATE VIEW invoices_analyst
+AS
+SELECT inv_id,
+       booking_id,
+       inv_issue_date,
+       inv_due_date,
+       inv_total,
+       inv_discount,
+       inv_final,
+       inv_status
+FROM invoices;
+
+CREATE VIEW refund_analyst
+AS
+SELECT refund_id,
+       inv_id,
+       refund_amount
+FROM refunds;
+
+CREATE VIEW mot_result_analyst
+AS
+SELECT mot_res_id,
+       booking_id,
+       vec_id,
+       test_date,
+       expiry_date,
+       result
+FROM mot_results;
+
+CREATE VIEW customer_feedback_analyst
+AS
+SELECT cust_fb_id,
+       cust_id,
+       booking_id
+FROM customer_feedbacks;

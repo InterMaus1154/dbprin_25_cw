@@ -1,4 +1,4 @@
-
+-- QUERY 1
 
 -- Show MOTs that are either expired, or will expire in the next 7 or 30 days
 -- For identificiation it includes vehicle reg, customer full name, and customer contact number, as well as the expiry date
@@ -25,9 +25,11 @@ FROM latest_mot mt
          JOIN customer_safe c
               USING (cust_id)
 WHERE mt.rank = 1
-ORDER BY expiry_date ASC, "Status" ASC;
+ORDER BY expiry_date DESC, "Status" ASC;
 
+-- END QUERY 1
 
+-- QUERY 2
 
 -- performance per branch in the year of 2025
 -- total number of bookings
@@ -45,7 +47,7 @@ WITH filtered_bookings AS (SELECT booking_id, branch_id
                              SUM(inv_final) FILTER ( WHERE inv_status = 'PAID' ) AS paid_inv_final,
                              SUM(inv_final) FILTER (WHERE inv_status != 'PAID')  AS due_inv_final,
                              COUNT(*)                                            AS total_invoices,
-                             COUNT(CASE WHEN inv_status != 'PAID' THEN 1 END)    AS due_count
+                             COUNT(*) FILTER (WHERE inv_status != 'PAID')        AS due_count
                       FROM invoices
                       GROUP BY booking_id),
      job_data AS (SELECT bs.booking_id AS booking_id,
@@ -79,13 +81,14 @@ WITH filtered_bookings AS (SELECT booking_id, branch_id
                    WHERE rn = 1)
 SELECT RANK()
        OVER (ORDER BY SUM(COALESCE(id.paid_inv_final, 0) + COALESCE(id.due_inv_final, 0)) DESC) AS "Branch Total Income Rank",
-       b.branch_name                                                                            AS "Branch",
-       COUNT(DISTINCT fb.booking_id)                                                            AS "No. of Bookings",
+       CONCAT_WS(' ', b.branch_code, b.branch_name)                                             AS "Branch",
+       COUNT(DISTINCT fb.booking_id)                                                            AS "No. of Branch Bookings",
        COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                                               AS "Total Branch Income (GBP)",
        CONCAT(COALESCE(ROUND(SUM(id.due_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2),
-                       0), '%')                                                                 AS "Due Invoices %",
-       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                                             AS "Due Income (GBP)",
-       COALESCE(SUM(jd.completed_jobs), 0)                                                      AS "Total Branch Jobs",
+                       0),
+              '%')                                                                              AS "Unpaid Invoices / Total Invoices (%)",
+       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                                             AS "Missing Income from Unpaid Invoices (GBP)",
+       COALESCE(SUM(jd.completed_jobs), 0)                                                      AS "Total Completed Branch Jobs",
        COALESCE(MAX(CONCAT_WS(' ', s.staff_fname, s.staff_lname)),
                 'N/A')                                                                          AS "Most Jobs Completed By",
        COALESCE(MAX(ts.staff_jobs_no), 0)                                                       AS "Staff Completed Jobs"
@@ -100,9 +103,9 @@ FROM branches b
                    ON ts.branch_id = b.branch_id
          LEFT JOIN staff s
                    ON s.staff_id = ts.staff_id
-GROUP BY b.branch_name
+GROUP BY b.branch_name, b.branch_code
 ORDER BY "Branch Total Income Rank",
-         "No. of Bookings" DESC,
+         "No. of Branch Bookings" DESC,
          "Total Branch Income (GBP)" DESC;
 
 
