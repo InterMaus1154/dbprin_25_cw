@@ -79,6 +79,40 @@ FROM parts p
                    ON b.branch_id = bp.branch_id
 ORDER BY b.branch_code;
 
+-- show bookings in the next 7 days, alongside with vehicle registration number
+CREATE VIEW next_week_bookings
+AS
+SELECT booking_id,
+       vec_reg,
+       branch_id,
+       booking_date,
+       booking_time,
+       booking_comments
+FROM bookings
+         JOIN vehicles
+              USING (vec_id)
+WHERE booking_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+ORDER BY booking_date ASC, booking_time ASC;
+
+-- show parts with lowest stock (<=20 qty) including branch
+CREATE VIEW branch_low_stock
+AS
+SELECT branch_id,
+       branch_code,
+       part_id,
+       part_name,
+       quantity
+FROM branch_parts
+         JOIN parts
+              USING (part_id)
+         JOIN branches
+              USING (branch_id)
+WHERE quantity <= 20
+ORDER BY branch_code ASC, quantity ASC;
+
+
+
+-- START OF DATA ANALYST VIEWS
 -- Views for data_analyst role
 -- These views include just minimal data, and excluding as much personal information as possible, since it is not required for analysts to do calculations and statistics
 
@@ -127,6 +161,7 @@ FROM branches;
 CREATE VIEW supplier_analyst
 AS
 SELECT sup_id,
+       sup_name,
        sup_city,
        is_active
 FROM suppliers;
@@ -178,3 +213,5 @@ SELECT cust_fb_id,
        cust_id,
        booking_id
 FROM customer_feedbacks;
+
+-- END OF DATA ANALYST VIEWS

@@ -30,15 +30,16 @@ ORDER BY expiry_date DESC, "Status" ASC;
 -- END QUERY 1
 
 -- QUERY 2
-
 -- performance per branch in the year of 2025
+-- ranking over branches based on total income (includes already paid, and unpaid invoices)
 -- total number of bookings
 -- total income per branch, paid invoices only
--- % of invoices that are overdue, compared to total per branch
--- missing income due to not yet paid invoices
+-- % of invoices that are unpaid, compared to total count of invoices per branch
+-- missing (unpaid) invoices in GBP
 -- total jobs completed in the branch
 -- the staff who completed the most number of jobs
--- the number of jobs completed by that staff
+-- the number of jobs completed by that staff,
+-- ordered by the branch rank, from highest to lowest
 WITH filtered_bookings AS (SELECT booking_id, branch_id
                            FROM bookings
                            WHERE booking_date >= '2025-01-01'
