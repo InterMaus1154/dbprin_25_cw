@@ -8,6 +8,9 @@ SELECT c.cust_id,
        c.cust_email,
        c.cust_contact_num,
        c.cust_postcode,
+       c.mship_id AS mship_id,
+       c.mship_start_date,
+       c.mship_end_date,
        STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
 FROM customers c
          LEFT JOIN (SELECT cust_id, emg_contact
@@ -117,7 +120,17 @@ SELECT DISTINCT *
 FROM invoices inv
 WHERE EXISTS (SELECT 1 FROM installments WHERE installments.inv_id = inv.inv_id);
 
-
+-- customers with active membership
+CREATE VIEW active_customer_memberships AS
+SELECT c.cust_id,
+       c.cust_fname,
+       c.cust_lname,
+       m.mship_name
+FROM customer_safe c
+         JOIN memberships m
+              USING (mship_id)
+WHERE c.mship_id IS NOT NULL
+  AND c.mship_end_date > CURRENT_DATE;
 
 -- START OF DATA ANALYST VIEWS
 -- Views for data_analyst role
