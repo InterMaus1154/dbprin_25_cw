@@ -107,9 +107,22 @@ SELECT CONCAT_WS(': ', part_id, part_name) AS "Part",
            ELSE 'Not supplying'
            END                             AS "Is active supplier?"
 FROM supplier_analyst
-        JOIN part_suppliers
-                   USING (sup_id)
-        JOIN parts
-                   USING (part_id)
+         JOIN part_suppliers
+              USING (sup_id)
+         JOIN parts
+              USING (part_id)
 GROUP BY part_id, part_name
 ORDER BY part_id;
+
+-- Query 7
+-- Another simple example as a data analyst
+-- Showing the number of bookings, where customer left a feedback
+-- Including percentage
+WITH booking_count_with_feedbacks
+         AS (SELECT COUNT(*) FILTER ( WHERE EXISTS (SELECT 1
+                                                    FROM customer_feedback_analyst cfa
+                                                    WHERE cfa.booking_id = b.booking_id) ) as count
+             FROM bookings b)
+SELECT (SELECT count FROM booking_count_with_feedbacks)       AS "Bookigns with feedbacks",
+       CONCAT(ROUND(((SELECT count FROM booking_count_with_feedbacks)::NUMERIC
+           / (SELECT count(*) FROM bookings)) * 100, 2), '%') AS "% of bookings with feedback";
