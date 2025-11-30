@@ -110,6 +110,13 @@ FROM branch_parts
 WHERE quantity <= 20
 ORDER BY branch_code ASC, quantity ASC;
 
+-- show invoices that has installments
+CREATE VIEW invoices_with_installments
+AS
+SELECT DISTINCT *
+FROM invoices inv
+WHERE EXISTS (SELECT 1 FROM installments WHERE installments.inv_id = inv.inv_id);
+
 
 
 -- START OF DATA ANALYST VIEWS
