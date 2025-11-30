@@ -480,4 +480,24 @@ CREATE TRIGGER tgr_deduct_parts_after_usage
     FOR EACH ROW
 EXECUTE FUNCTION deduct_parts_after_usage();
 
+CREATE OR REPLACE FUNCTION refresh_customer_booking_history()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW customer_booking_history;
+    RETURN NULL;
+END;
+    $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_refresh_customer_booking_history_on_bookings
+    AFTER INSERT OR DELETE OR UPDATE ON bookings
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION refresh_customer_booking_history();
+
+CREATE OR REPLACE TRIGGER tgr_refresh_customer_booking_history_on_customers
+    AFTER INSERT ON customers
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION refresh_customer_booking_history();
+
+
 -- END OF TRIGGERS

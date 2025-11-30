@@ -8,7 +8,7 @@ SELECT c.cust_id,
        c.cust_email,
        c.cust_contact_num,
        c.cust_postcode,
-       c.mship_id AS mship_id,
+       c.mship_id                         AS mship_id,
        c.mship_start_date,
        c.mship_end_date,
        STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
@@ -133,11 +133,28 @@ FROM customer_safe c
 WHERE c.mship_id IS NOT NULL
   AND c.mship_end_date > CURRENT_DATE;
 
+CREATE MATERIALIZED VIEW customer_booking_history
+AS
+SELECT c.cust_id                    AS cust_id,
+       COUNT(DISTINCT b.booking_id) AS total_bookings,
+       MIN(b.booking_date)          AS first_booking,
+       MAX(b.booking_date)          AS last_booking,
+       COUNT(DISTINCT v.vec_id)     AS vehicle_count
+FROM customer_safe c
+         LEFT JOIN vehicles v
+                   ON v.cust_id = c.cust_id
+         LEFT JOIN bookings b
+                   ON b.vec_id = v.vec_id
+GROUP BY c.cust_id;
+
+CREATE INDEX idx_customer_id ON customer_booking_history (cust_id);
+
 -- START OF DATA ANALYST VIEWS
 -- Views for data_analyst role
 -- These views include just minimal data, and excluding as much personal information as possible, since it is not required for analysts to do calculations and statistics
 
-CREATE VIEW vehicle_analyst
+CREATE VIEW
+    vehicle_analyst
 AS
 SELECT vec_id,
        vec_brand_id,
