@@ -149,6 +149,21 @@ GROUP BY c.cust_id;
 
 CREATE INDEX idx_customer_id ON customer_booking_history (cust_id);
 
+-- show upcoming bay inspections in the next 30 days, with branch data
+CREATE VIEW upcoming_bay_inspections
+AS
+SELECT br.branch_code              AS branch_code,
+       b.bay_id                    AS bay_id,
+       b.bay_name                  AS bay,
+       bi.inspection_next_due_date AS next_inspection
+FROM bay_inspections bi
+         JOIN bays b
+              ON b.bay_id = bi.bay_id
+         JOIN branches br
+              ON br.branch_id = b.branch_id
+WHERE inspection_next_due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days';
+
+
 -- START OF DATA ANALYST VIEWS
 -- Views for data_analyst role
 -- These views include just minimal data, and excluding as much personal information as possible, since it is not required for analysts to do calculations and statistics
