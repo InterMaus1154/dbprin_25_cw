@@ -200,14 +200,14 @@ ORDER BY b.branch_code ASC,
 
 -- Query 6
 -- A simple example query, that can be run as a data_analyst, using the views they have access to
--- For each part, find the active supplier that supplies it with the lowest unit cost
+-- For each part, find the supplier that supplies it with the lowest unit cost
 SELECT CONCAT_WS(': ', part_id, part_name) AS "Part",
        MIN(unit_cost)                      AS "Unit Cost £",
        MAX(sup_name)                       AS "Supplier",
        CASE
            WHEN BOOL_OR(is_active) THEN 'Supplying'
            ELSE 'Not supplying'
-           END                             AS "Is active supplier?"
+           END                             AS "Supplying?"
 FROM supplier_analyst
          JOIN part_suppliers USING (sup_id)
          JOIN parts USING (part_id)
@@ -226,11 +226,14 @@ WITH booking_count_with_feedbacks -- separately count the bookings with feedback
                 FROM customer_feedback_analyst cfa
                 WHERE cfa.booking_id = b.booking_id)
         ) as count
-             FROM bookings b)
-SELECT (SELECT COUNT(*) FROM bookings)     AS "Total Bookings",
+             FROM bookings b),
+     booking_count
+         AS
+             (SELECT COUNT(*) AS count FROM bookings)
+SELECT (SELECT count FROM booking_count)   AS "Total Bookings",
        (SELECT count
         FROM booking_count_with_feedbacks) AS "Bookigns with feedbacks",
-       CONCAT(ROUND(((SELECT count FROM booking_count_with_feedbacks) :: NUMERIC / (SELECT count(*) FROM bookings)) *
+       CONCAT(ROUND(((SELECT count FROM booking_count_with_feedbacks) :: NUMERIC / (SELECT count FROM booking_count)) *
                     100, 2), '%')          AS "Bookings with feedback ratio";
 
 -- calculate percentage
