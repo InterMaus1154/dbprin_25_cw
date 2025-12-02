@@ -36,7 +36,7 @@ ORDER BY expiry_date DESC,
 WITH filtered_bookings AS (SELECT booking_id,
                                   branch_id
                            FROM bookings
-                           WHERE booking_date >= '2025-01 - 01 '
+                           WHERE booking_date >= '2025-01-01 '
                              AND booking_date <= '2025-12-31'),
      invoice_data AS (SELECT booking_id,
                              SUM(inv_final) FILTER (WHERE inv_status = 'PAID')  AS paid_inv_final,
@@ -57,7 +57,7 @@ WITH filtered_bookings AS (SELECT booking_id,
                            j.staff_id,
                            COUNT(*) AS staff_jobs_no
                     FROM jobs j
-                             JOIN staff s USING (staff_id)
+                             JOIN staff_safe s USING (staff_id)
                     WHERE j.job_status = 'COMPLETED'
                       AND j.job_end >= '2025-01-01'
                       AND j.job_end <= '2025-12-31'
@@ -157,7 +157,7 @@ GROUP BY c.cust_id,
 ORDER BY total_spend DESC;
 
 -- Query 4
--- Branch Level Workload
+-- Branch Level Workload in the last 30 days
 -- shows the work load of all branche, eg how many avg jobs per staff to see check if someone is being over/underworked
 -- also how many jobs are still to be done and are currently being done 
 SELECT b.branch_name,

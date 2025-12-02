@@ -19,6 +19,19 @@ FROM customers c
 GROUP BY c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode;
 
 
+DROP MATERIALIZED VIEW IF EXISTS staff_safe;
+CREATE MATERIALIZED VIEW IF NOT EXISTS staff_safe
+AS
+SELECT s.staff_id         AS staff_id,
+       s.staff_fname      AS staff_fname,
+       s.staff_lname      AS staff_lname,
+       s.staff_code       AS staff_code,
+       s.staff_work_phone AS staff_work_phone,
+       s.staff_work_email AS staff_work_email,
+       s.branch_id
+FROM staff s;
+
+
 -- staff roles with role name
 -- no need to join if information is required
 DROP MATERIALIZED VIEW IF EXISTS staff_role_detailed;
