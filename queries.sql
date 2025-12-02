@@ -2,14 +2,10 @@
 -- Show MOTs that are either expired, or will expire in the next 7 or 30 days
 -- For identification it includes vehicle reg, customer full name, and customer contact number, as well as the expiry date
 WITH latest_mot AS (SELECT vec_id,
-                           expiry_date,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY vec_id
-                               ORDER BY
-                                   expiry_date DESC
-                               ) AS rank
+                           MAX(expiry_date) AS expiry_date
                     FROM mot_results
-                    WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days')
+                    WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days'
+                    GROUP BY vec_id)
 SELECT v.vec_reg                                  AS "Registration",
        CONCAT_WS(' ', c.cust_fname, c.cust_lname) AS "Customer",
        c.cust_contact_num                         AS "Contact Number",
@@ -22,7 +18,6 @@ SELECT v.vec_reg                                  AS "Registration",
 FROM latest_mot mt
          JOIN vehicle_safe v USING (vec_id)
          JOIN customer_safe c USING (cust_id)
-WHERE mt.rank = 1
 ORDER BY expiry_date DESC,
          "Status" ASC;
 
@@ -41,7 +36,7 @@ ORDER BY expiry_date DESC,
 WITH filtered_bookings AS (SELECT booking_id,
                                   branch_id
                            FROM bookings
-                           WHERE booking_date >= '2025-01-01'
+                           WHERE booking_date >= '2025-01 - 01 '
                              AND booking_date <= '2025-12-31'),
      invoice_data AS (SELECT booking_id,
                              SUM(inv_final) FILTER (WHERE inv_status = 'PAID')  AS paid_inv_final,
