@@ -227,18 +227,10 @@ WITH booking_count_with_feedbacks -- separately count the bookings with feedback
                 WHERE cfa.booking_id = b.booking_id)
         ) as count
              FROM bookings b)
-SELECT (SELECT count
+SELECT (SELECT COUNT(*) FROM bookings)     AS "Total Bookings",
+       (SELECT count
         FROM booking_count_with_feedbacks) AS "Bookigns with feedbacks",
-       CONCAT(
-               ROUND(
-                       (
-                           (SELECT count
-                            FROM booking_count_with_feedbacks) :: NUMERIC / (SELECT count(*)
-                                                                             FROM bookings)
-                           ) * 100,
-                       2
-               ),
-               '%'
-       )                                   AS "% of bookings with feedback";
+       CONCAT(ROUND(((SELECT count FROM booking_count_with_feedbacks) :: NUMERIC / (SELECT count(*) FROM bookings)) *
+                    100, 2), '%')          AS "Bookings with feedback ratio";
 
 -- calculate percentage
