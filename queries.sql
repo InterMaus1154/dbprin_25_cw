@@ -196,13 +196,14 @@ ORDER BY b.branch_code ASC,
 -- Query 6
 -- A simple example query, that can be run as a data_analyst, using the views they have access to
 -- For each part, find the supplier that supplies it with the lowest unit cost
-SELECT CONCAT_WS(': ', part_id, part_name) AS "Part",
-       MIN(unit_cost)                      AS "Unit Cost £",
-       MAX(sup_name)                       AS "Supplier",
+SELECT part_id        AS "Part Id",
+       part_name      AS "Part",
+       MIN(unit_cost) AS "Unit Cost £",
+       MAX(sup_name)  AS "Supplier",
        CASE
            WHEN BOOL_OR(is_active) THEN 'Supplying'
            ELSE 'Not supplying'
-           END                             AS "Supplying?"
+           END        AS "Supplying?"
 FROM supplier_analyst
          JOIN part_suppliers USING (sup_id)
          JOIN parts USING (part_id)

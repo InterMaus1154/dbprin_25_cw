@@ -41,7 +41,7 @@ SELECT s.staff_id,
        CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
        r.role_id,
        r.role_name
-FROM staff s
+FROM staff_safe s
          JOIN staff_roles
               USING (staff_id)
          JOIN roles r
