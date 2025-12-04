@@ -37,10 +37,11 @@ FROM staff s;
 DROP MATERIALIZED VIEW IF EXISTS staff_role_detailed;
 CREATE MATERIALIZED VIEW IF NOT EXISTS staff_role_detailed
 AS
-SELECT s.staff_id,
+SELECT s.staff_id                                   AS staff_id,
+       s.staff_code                                 AS staff_code,
        CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
-       r.role_id,
-       r.role_name
+       r.role_id                                    AS role_id,
+       r.role_name                                  AS role_name
 FROM staff_safe s
          JOIN staff_roles
               USING (staff_id)
@@ -52,12 +53,13 @@ ORDER BY s.staff_fname ASC, s.staff_lname ASC;
 DROP MATERIALIZED VIEW IF EXISTS branch_manager_details;
 CREATE MATERIALIZED VIEW IF NOT EXISTS branch_manager_details
 AS
-SELECT s.staff_id,
+SELECT s.staff_id                                   AS staff_id,
+       s.staff_code                                 AS staff_code,
        CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
-       b.branch_id,
-       b.branch_code,
-       b.branch_name,
-       subq.assigned_at                             AS manager_from
+       b.branch_id                                  AS branch_id,
+       b.branch_code                                AS branch_code,
+       b.branch_name                                AS branch_name,
+       subq.assigned_at                             AS manager_since
 FROM staff s
          JOIN (SELECT staff_id, branch_id, assigned_at
                FROM branch_managers
@@ -83,11 +85,14 @@ FROM vehicles v
 
 -- show branch stock with part names and branch codes for better readability
 -- not MV, as it is updated regularly
+DROP VIEW IF EXISTS branch_part_detailed;
 CREATE VIEW branch_part_detailed
 AS
-SELECT b.branch_code AS "Branch Code",
-       p.part_name   AS "Part",
-       bp.quantity   AS "Quantity"
+SELECT b.branch_code AS branch_code,
+       b.branch_id   AS branch_id,
+       p.part_name   AS part_name,
+       p.part_id     AS part_id,
+       bp.quantity   AS quantity
 FROM parts p
          LEFT JOIN branch_parts bp
                    ON bp.part_id = p.part_id
@@ -96,10 +101,12 @@ FROM parts p
 ORDER BY b.branch_code;
 
 -- show bookings in the next 7 days, alongside with vehicle registration number
+DROP VIEW IF EXISTS next_week_bookings;
 CREATE VIEW next_week_bookings
 AS
 SELECT booking_id,
        vec_reg,
+       vec_id,
        branch_id,
        booking_date,
        booking_time,
@@ -134,12 +141,13 @@ FROM invoices inv
 WHERE EXISTS (SELECT 1 FROM installments WHERE installments.inv_id = inv.inv_id);
 
 -- customers with active membership
+DROP VIEW IF EXISTS active_customer_memberships;
 CREATE VIEW active_customer_memberships AS
-SELECT c.cust_id,
-       c.cust_fname,
-       c.cust_lname,
-       m.mship_name,
-       c.mship_end_date
+SELECT c.cust_id        AS cust_id,
+       c.cust_fname     AS cust_fname,
+       c.cust_lname     AS cust_lname,
+       m.mship_name     AS mship_name,
+       c.mship_end_date AS mship_end_date
 FROM customer_safe c
          JOIN memberships m
               USING (mship_id)
