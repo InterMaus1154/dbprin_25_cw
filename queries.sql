@@ -1,3 +1,5 @@
+-- START OF QUERIES
+
 -- QUERY 1
 -- Show MOTs that are either expired, or will expire in the next 7 or 30 days
 -- For identification it includes vehicle reg, customer full name, and customer contact number, as well as the expiry date
@@ -233,3 +235,5 @@ SELECT (SELECT count FROM booking_count)   AS "Total Bookings",
                     100, 2), '%')          AS "Bookings with feedback ratio";
 
 -- calculate percentage
+
+-- END OF QUERIES

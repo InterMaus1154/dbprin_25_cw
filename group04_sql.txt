@@ -41051,3 +41051,1208 @@ SELECT pg_catalog.setval('vehicles_vec_id_seq', 369, true);
 -- PostgreSQL database dump complete
 --
 
+-- START OF TRIGGERS
+
+-- automatically refresh customer_safe view on new action
+CREATE OR REPLACE FUNCTION refresh_customer_safe()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW customer_safe;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_refresh_customer_safe
+    AFTER INSERT OR UPDATE OR DELETE
+    ON customers
+    FOR EACH STATEMENT
+EXECUTE FUNCTION refresh_customer_safe();
+
+-- refresh staff_role_detailed view
+CREATE OR REPLACE FUNCTION refresh_staff_role_detailed()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW staff_role_detailed;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_refresh_staff_role_detailed
+    AFTER INSERT OR UPDATE OR DELETE
+    ON staff_roles
+    FOR EACH STATEMENT
+EXECUTE FUNCTION refresh_staff_role_detailed();
+
+-- refresh branch_manager_details
+CREATE OR REPLACE FUNCTION refresh_branch_manager_details()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW branch_manager_details;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_refresh_branch_manager_details
+    AFTER INSERT OR UPDATE OR DELETE
+    ON branch_managers
+    FOR EACH STATEMENT
+EXECUTE FUNCTION refresh_branch_manager_details();
+
+--- Prevent inserting the same staff for the same branch as manager, if they are already an active manager there
+CREATE OR REPLACE FUNCTION check_same_branch_manager()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    IF EXISTS (SELECT 1
+               FROM branch_managers
+               WHERE staff_id = NEW.staff_id
+                 AND branch_id = NEW.branch_id
+                 AND is_active = TRUE
+                 AND (TG_OP = 'INSERT' OR branch_man_id <> NEW.branch_man_id)) THEN
+        RAISE EXCEPTION 'Staff % is already an active manager at branch %', NEW.staff_id, NEW.branch_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tgr_check_same_branch_manager
+    BEFORE INSERT OR UPDATE
+    ON branch_managers
+    FOR EACH ROW
+EXECUTE FUNCTION check_same_branch_manager();
+
+-- update vehicle safe
+CREATE OR REPLACE FUNCTION update_vehicle_safe()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW vehicle_safe;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_update_vehicle_safe
+    AFTER INSERT OR UPDATE OR DELETE
+    ON vehicles
+    FOR EACH STATEMENT
+EXECUTE FUNCTION update_vehicle_safe();
+
+-- do not allow insertion into part usage, if the current stock quantity in the branch is less than what is required
+CREATE OR REPLACE FUNCTION check_stock_level_for_part_usage()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    current_part_quantity INTEGER;
+    job_branch_id         INTEGER;
+BEGIN
+    -- get current branch
+    SELECT s.branch_id
+    INTO job_branch_id
+    FROM jobs j
+             JOIN staff s USING (staff_id)
+    WHERE j.job_id = NEW.job_id;
+
+    -- check stock level at branch
+    SELECT bp.quantity
+    INTO current_part_quantity
+    FROM branch_parts bp
+    WHERE bp.branch_id = job_branch_id
+      AND bp.part_id = NEW.part_id;
+
+    -- if part doesnt exist
+    IF current_part_quantity IS NULL THEN
+        RAISE EXCEPTION 'Part id % is not available at branch id %', NEW.part_id, job_branch_id;
+    END IF;
+
+    IF current_part_quantity < NEW.quantity THEN
+        RAISE EXCEPTION 'Quantity is less than available in the branch, available is %, but requested is %', current_part_quantity, NEW.quantity;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_stock_level_for_part_usage
+    BEFORE INSERT
+    ON part_usage
+    FOR EACH ROW
+EXECUTE FUNCTION check_stock_level_for_part_usage();
+
+-- do not allow insertion of part transfer, if the stock level at the from branch is less than the required
+CREATE OR REPLACE FUNCTION check_stock_level_for_part_transfer()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    current_stock_quantity INTEGER;
+BEGIN
+    SELECT bp.quantity
+    INTO current_stock_quantity
+    FROM branch_parts bp
+    WHERE bp.part_id = NEW.part_id
+      AND bp.branch_id = NEW.from_branch_id;
+
+    IF current_stock_quantity IS NULL THEN
+        RAISE EXCEPTION 'Part % does not exist at branch %', NEW.part_id, NEW.from_branch_id;
+    END IF;
+
+    IF current_stock_quantity < NEW.quantity THEN
+        RAISE EXCEPTION 'There are not enough parts available in branch %', NEW.from_branch_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_stock_level_for_part_transfer
+    BEFORE INSERT
+    ON part_transfers
+    FOR EACH ROW
+EXECUTE FUNCTION check_stock_level_for_part_transfer();
+
+-- do not allow insertion or update, if the approved_by is not the manager of the branch where it is being transferred to
+CREATE OR REPLACE FUNCTION check_for_correct_approval_staff_for_part_transfer()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    is_valid_manager INTEGER;
+BEGIN
+    -- a staff cannot approve their own request
+    IF NEW.approved_by = NEW.requested_by THEN
+        RAISE EXCEPTION 'A staff cannot approve their own transfer request!';
+    END IF;
+
+    -- a staff has to be manager at the to_branch_id
+    SELECT EXISTS (SELECT 1
+                   FROM branch_managers bm
+                   WHERE bm.branch_id = NEW.to_branch_id
+                     AND bm.staff_id = NEW.approved_by
+                     AND bm.is_active)
+    INTO is_valid_manager;
+
+    -- no result was found
+    IF NOT is_valid_manager THEN
+        RAISE EXCEPTION 'A manager at branch id % needs to approve this request!', NEW.to_branch_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_for_correct_approval_staff_for_part_transfer
+    BEFORE INSERT OR UPDATE
+    ON part_transfers
+    FOR EACH ROW
+EXECUTE FUNCTION check_for_correct_approval_staff_for_part_transfer();
+
+-- update stock levels after a part_transfer is completed
+CREATE OR REPLACE FUNCTION update_stock_levels_after_part_transfer()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    -- only proceed if transfer was completed
+    IF NEW.transfer_status = 'COMPLETED' AND (OLD IS NULL OR OLD.transfer_status <> 'COMPLETED') THEN
+        -- decrease at branch it was transferred from
+        UPDATE branch_parts
+        SET quantity = quantity - NEW.quantity
+        WHERE branch_id = NEW.from_branch_id
+          AND part_id = NEW.part_id;
+
+        -- increase stock at transferred to branch
+        -- create new record, or update
+        INSERT INTO branch_parts (branch_id, part_id, quantity)
+        VALUES (NEW.to_branch_id, NEW.part_id, NEW.quantity)
+        ON CONFLICT (branch_id, part_id) DO UPDATE
+            SET quantity = branch_parts.quantity + EXCLUDED.quantity;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_update_stock_levels_after_part_transfer
+    AFTER INSERT OR UPDATE
+    ON part_transfers
+    FOR EACH ROW
+    WHEN (NEW.transfer_status = 'COMPLETED')
+EXECUTE FUNCTION update_stock_levels_after_part_transfer();
+
+-- prevent deleting paid invoices
+CREATE OR REPLACE FUNCTION prevent_paid_invoice_deletion()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    IF OLD.inv_status = 'PAID' THEN
+        RAISE EXCEPTION 'Paid invoice deletion is not allowed on invoice id %', OLD.inv_id;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_prevent_paid_invoice_deletion
+    BEFORE DELETE
+    ON invoices
+    FOR EACH ROW
+EXECUTE FUNCTION prevent_paid_invoice_deletion();
+
+-- automatically set invoice to paid if all installments are paid
+CREATE OR REPLACE FUNCTION update_invoice_status()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    -- check if all installments of an invoice are paid
+    IF NOT EXISTS (SELECT 1
+                   FROM installments inst
+                   WHERE inst.inv_id = NEW.inv_id
+                     AND inst.inst_status != 'PAID') THEN
+        UPDATE invoices
+        SET inv_status = 'PAID'
+        WHERE inv_id = NEW.inv_id;
+    END IF;
+
+    -- check if current installment is overdue
+    -- if installment is overdue, set invoice as overdue
+    IF NEW.inst_status = 'OVERDUE' THEN
+        UPDATE invoices
+        SET inv_status = 'OVERDUE'
+        WHERE inv_id = NEW.inv_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_update_invoice_status
+    AFTER UPDATE
+    ON installments
+    FOR EACH ROW
+EXECUTE FUNCTION update_invoice_status();
+
+-- check if a bay assigned to a job is available or not
+-- reject job if not available
+CREATE OR REPLACE FUNCTION check_bay_status()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    current_bay_status bay_status;
+BEGIN
+    SELECT bay_status
+    INTO current_bay_status
+    FROM bays
+    WHERE bay_id = NEW.bay_id;
+
+    -- reject bay if not available
+    IF current_bay_status != 'AVAILABLE' THEN
+        RAISE EXCEPTION 'Bay % is not available!', NEW.bay_id;
+    END IF;
+
+    -- update bay status to occupied
+    UPDATE bays
+    SET bay_status = 'OCCUPIED'
+    WHERE bay_id = NEW.bay_id
+      AND bay_status = 'AVAILABLE';
+
+    IF NOT FOUND
+    THEN
+        RAISE EXCEPTION 'Bay % is not available', NEW.bay_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_check_bay_status
+    BEFORE INSERT
+    ON jobs
+    FOR EACH ROW
+EXECUTE FUNCTION check_bay_status();
+
+-- before invoice insertion, automatically get money for total services, then discount, and subtract discount for the final amount to be paid
+CREATE OR REPLACE FUNCTION calculate_invoice_amount()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    total                     DECIMAL(10, 2) := 0.00;
+    temp_total                DECIMAL(10, 2) := 0.00;
+    service_discounts         DECIMAL        := 0.00;
+    service_package_discounts DECIMAL        := 0.00;
+    total_discount            DECIMAL(10, 2) := 0.00;
+    membership_discount       DECIMAL        := 0.00;
+    temp_membership_discount  DECIMAL        := 0.00;
+    membership_id             INTEGER;
+BEGIN
+    -- check if the customer has membership
+    SELECT customers.mship_id
+    INTO membership_id
+    FROM bookings
+             JOIN vehicles USING (vec_id)
+             JOIN customers USING (cust_id)
+    WHERE bookings.booking_id = NEW.booking_id
+      AND customers.mship_id IS NOT NULL;
+
+    -- a booking may only have services from packages, not individual services
+    IF EXISTS(SELECT 1
+              FROM booking_services
+              WHERE booking_services.booking_id = NEW.booking_id) THEN
+        -- calculate the total from booking_services
+        SELECT COALESCE(SUM(service_price), 0)
+        INTO total
+        FROM booking_services
+                 JOIN services USING (service_id)
+        WHERE booking_id = NEW.booking_id;
+
+        -- calculate service_discounts
+        SELECT COALESCE(SUM(sd.disc_amount), 0)
+        INTO service_discounts
+        FROM booking_services bs
+                 JOIN service_discounts sd ON bs.service_id = sd.service_id AND sd.is_active = TRUE
+        WHERE bs.booking_id = NEW.booking_id;
+    END IF;
+
+    IF EXISTS(SELECT 1
+              FROM booking_packages
+              WHERE booking_packages.booking_id = NEW.booking_id) THEN
+        -- calculate the sum of booking package services
+        SELECT COALESCE(SUM(s.service_price), 0)
+        INTO temp_total
+        FROM booking_packages
+                 JOIN packages USING (pkg_id)
+                 JOIN package_services USING (pkg_id)
+                 JOIN services s USING (service_id)
+        WHERE booking_packages.booking_id = NEW.booking_id;
+
+        -- calculate discounts for services in the packages
+        SELECT COALESCE(SUM(sd.disc_amount), 0)
+        INTO service_package_discounts
+        FROM booking_packages
+                 JOIN packages USING (pkg_id)
+                 JOIN package_services USING (pkg_id)
+                 JOIN service_discounts sd USING (service_id)
+        WHERE booking_packages.booking_id = NEW.booking_id
+          AND sd.is_active = TRUE;
+    END IF;
+
+    -- calculate membership discounts
+    IF membership_id IS NOT NULL THEN
+        -- calculate for individual services
+        IF EXISTS(SELECT 1
+                  FROM booking_services
+                  WHERE booking_id = NEW.booking_id) THEN
+            SELECT COALESCE(
+                           SUM(
+                                   CASE
+                                       WHEN discount_type = 'FIXED' THEN discount_value
+                                       WHEN discount_type = 'PERCENT' THEN service_price * (discount_value / 100)
+                                       END
+                           ),
+                           0
+                   )
+            INTO membership_discount
+            FROM bookings b
+                     JOIN vehicles USING (vec_id)
+                     JOIN customers USING (cust_id)
+                     JOIN membership_services ms USING (mship_id)
+                     JOIN booking_services bs ON ms.service_id = bs.service_id AND bs.booking_id = NEW.booking_id
+                     JOIN services s ON bs.service_id = s.service_id
+            WHERE b.booking_id = NEW.booking_id;
+        END IF;
+
+        -- calculate for package services
+        IF EXISTS(SELECT 1
+                  FROM booking_packages
+                  WHERE booking_id = NEW.booking_id) THEN
+            SELECT COALESCE(
+                           SUM(
+                                   CASE
+                                       WHEN discount_type = 'FIXED' THEN discount_value
+                                       WHEN discount_type = 'PERCENT' THEN service_price * (discount_value / 100)
+                                       END
+                           ),
+                           0
+                   )
+            INTO temp_membership_discount
+            FROM bookings b
+                     JOIN vehicles USING (vec_id)
+                     JOIN customers USING (cust_id)
+                     JOIN membership_services ms USING (mship_id)
+                     JOIN booking_packages bp ON bp.booking_id = NEW.booking_id
+                     JOIN packages USING (pkg_id)
+                     JOIN package_services ps ON ms.service_id = ps.service_id AND ps.pkg_id = bp.pkg_id
+                     JOIN services s ON ps.service_id = s.service_id
+            WHERE b.booking_id = NEW.booking_id;
+        END IF;
+    END IF;
+
+    -- add the package + service price
+    total := total + temp_total;
+    NEW.inv_total := total;
+
+    -- calculate total discount
+    total_discount := service_discounts + service_package_discounts + membership_discount + temp_membership_discount;
+    NEW.inv_discount := total_discount;
+
+    -- calculate final amount
+    NEW.inv_final := total - total_discount;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_calculate_invoice_amount
+    BEFORE INSERT
+    ON invoices
+    FOR EACH ROW
+EXECUTE FUNCTION calculate_invoice_amount();
+
+CREATE OR REPLACE FUNCTION deduct_parts_after_usage()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    job_branch_id INTEGER;
+BEGIN
+    SELECT s.branch_id
+    INTO job_branch_id
+    FROM jobs j
+             JOIN staff s USING (staff_id)
+    WHERE j.job_id = NEW.job_id;
+
+    UPDATE branch_parts
+    SET quantity = quantity - NEW.quantity
+    WHERE branch_id = job_branch_id
+      AND part_id = NEW.part_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tgr_deduct_parts_after_usage
+    AFTER INSERT
+    ON part_usage
+    FOR EACH ROW
+EXECUTE FUNCTION deduct_parts_after_usage();
+
+CREATE OR REPLACE FUNCTION refresh_customer_booking_history()
+    RETURNS TRIGGER AS
+$$
+BEGIN
+    REFRESH MATERIALIZED VIEW customer_booking_history;
+    RETURN NULL;
+END;
+    $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tgr_refresh_customer_booking_history_on_bookings
+    AFTER INSERT OR DELETE OR UPDATE ON bookings
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION refresh_customer_booking_history();
+
+CREATE OR REPLACE TRIGGER tgr_refresh_customer_booking_history_on_customers
+    AFTER INSERT ON customers
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION refresh_customer_booking_history();
+
+
+-- END OF TRIGGERS
+
+-- START OF VIEWS
+
+-- minimal information about customer, including emergency phone numbers if any
+DROP MATERIALIZED VIEW IF EXISTS customer_safe;
+CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
+AS
+SELECT c.cust_id,
+       c.cust_fname,
+       c.cust_lname,
+       c.cust_email,
+       c.cust_contact_num,
+       c.cust_postcode,
+       c.mship_id                         AS mship_id,
+       c.mship_start_date,
+       c.mship_end_date,
+       STRING_AGG(subq.emg_contact, ', ') AS emergency_numbers
+FROM customers c
+         LEFT JOIN (SELECT cust_id, emg_contact
+                    FROM customer_emergency_contacts
+                    WHERE emg_type IN ('LANDLINE', 'MOBILE')) AS subq ON subq.cust_id = c.cust_id
+GROUP BY c.cust_id, c.cust_fname, c.cust_lname, c.cust_contact_num, c.cust_postcode;
+
+
+DROP MATERIALIZED VIEW IF EXISTS staff_safe;
+CREATE MATERIALIZED VIEW IF NOT EXISTS staff_safe
+AS
+SELECT s.staff_id         AS staff_id,
+       s.staff_fname      AS staff_fname,
+       s.staff_lname      AS staff_lname,
+       s.staff_code       AS staff_code,
+       s.staff_work_phone AS staff_work_phone,
+       s.staff_work_email AS staff_work_email,
+       s.branch_id
+FROM staff s;
+
+
+-- staff roles with role name
+-- no need to join if information is required
+DROP MATERIALIZED VIEW IF EXISTS staff_role_detailed;
+CREATE MATERIALIZED VIEW IF NOT EXISTS staff_role_detailed
+AS
+SELECT s.staff_id                                   AS staff_id,
+       s.staff_code                                 AS staff_code,
+       CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
+       r.role_id                                    AS role_id,
+       r.role_name                                  AS role_name
+FROM staff_safe s
+         JOIN staff_roles
+              USING (staff_id)
+         JOIN roles r
+              USING (role_id)
+ORDER BY s.staff_fname ASC, s.staff_lname ASC;
+
+-- active branch managers with branch name and full staff name
+DROP MATERIALIZED VIEW IF EXISTS branch_manager_details;
+CREATE MATERIALIZED VIEW IF NOT EXISTS branch_manager_details
+AS
+SELECT s.staff_id                                   AS staff_id,
+       s.staff_code                                 AS staff_code,
+       CONCAT_WS(' ', s.staff_fname, s.staff_lname) AS staff_name,
+       b.branch_id                                  AS branch_id,
+       b.branch_code                                AS branch_code,
+       b.branch_name                                AS branch_name,
+       subq.assigned_at                             AS manager_since
+FROM staff s
+         JOIN (SELECT staff_id, branch_id, assigned_at
+               FROM branch_managers
+               WHERE is_active = TRUE) AS subq ON s.staff_id = subq.staff_id
+         JOIN branches b
+              ON b.branch_id = subq.branch_id
+ORDER BY b.branch_id ASC;
+
+-- excluding VIN, and joining brand name
+CREATE MATERIALIZED VIEW IF NOT EXISTS vehicle_safe
+AS
+SELECT v.vec_id,
+       vb.vec_brand_name,
+       v.cust_id,
+       v.vec_model,
+       v.vec_reg,
+       v.vec_year,
+       v.vec_colour,
+       v.vec_fuel_type
+FROM vehicles v
+         JOIN vehicle_brands vb
+              USING (vec_brand_id);
+
+-- show branch stock with part names and branch codes for better readability
+-- not MV, as it is updated regularly
+DROP VIEW IF EXISTS branch_part_detailed;
+CREATE VIEW branch_part_detailed
+AS
+SELECT b.branch_code AS branch_code,
+       b.branch_id   AS branch_id,
+       p.part_name   AS part_name,
+       p.part_id     AS part_id,
+       bp.quantity   AS quantity
+FROM parts p
+         LEFT JOIN branch_parts bp
+                   ON bp.part_id = p.part_id
+         LEFT JOIN branches b
+                   ON b.branch_id = bp.branch_id
+ORDER BY b.branch_code;
+
+-- show bookings in the next 7 days, alongside with vehicle registration number
+DROP VIEW IF EXISTS next_week_bookings;
+CREATE VIEW next_week_bookings
+AS
+SELECT booking_id,
+       vec_reg,
+       vec_id,
+       branch_id,
+       booking_date,
+       booking_time,
+       booking_comments
+FROM bookings
+         JOIN vehicles
+              USING (vec_id)
+WHERE booking_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+ORDER BY booking_date ASC, booking_time ASC;
+
+-- show parts with lowest stock (<=20 qty) including branch
+CREATE VIEW branch_low_stock
+AS
+SELECT branch_id,
+       branch_code,
+       part_id,
+       part_name,
+       quantity
+FROM branch_parts
+         JOIN parts
+              USING (part_id)
+         JOIN branches
+              USING (branch_id)
+WHERE quantity <= 20
+ORDER BY branch_code ASC, quantity ASC;
+
+-- show invoices that has installments
+CREATE VIEW invoices_with_installments
+AS
+SELECT DISTINCT *
+FROM invoices inv
+WHERE EXISTS (SELECT 1 FROM installments WHERE installments.inv_id = inv.inv_id);
+
+-- customers with active membership
+DROP VIEW IF EXISTS active_customer_memberships;
+CREATE VIEW active_customer_memberships AS
+SELECT c.cust_id        AS cust_id,
+       c.cust_fname     AS cust_fname,
+       c.cust_lname     AS cust_lname,
+       m.mship_name     AS mship_name,
+       c.mship_end_date AS mship_end_date
+FROM customer_safe c
+         JOIN memberships m
+              USING (mship_id)
+WHERE c.mship_id IS NOT NULL
+  AND c.mship_end_date > CURRENT_DATE;
+
+CREATE MATERIALIZED VIEW customer_booking_history
+AS
+SELECT c.cust_id                    AS cust_id,
+       COUNT(DISTINCT b.booking_id) AS total_bookings,
+       MIN(b.booking_date)          AS first_booking,
+       MAX(b.booking_date)          AS last_booking,
+       COUNT(DISTINCT v.vec_id)     AS vehicle_count
+FROM customer_safe c
+         LEFT JOIN vehicles v
+                   ON v.cust_id = c.cust_id
+         LEFT JOIN bookings b
+                   ON b.vec_id = v.vec_id
+GROUP BY c.cust_id;
+
+CREATE INDEX idx_customer_id ON customer_booking_history (cust_id);
+
+-- show upcoming bay inspections in the next 30 days, with branch data
+CREATE VIEW upcoming_bay_inspections
+AS
+SELECT br.branch_code              AS branch_code,
+       b.bay_id                    AS bay_id,
+       b.bay_name                  AS bay,
+       bi.inspection_next_due_date AS next_inspection
+FROM bay_inspections bi
+         JOIN bays b
+              ON b.bay_id = bi.bay_id
+         JOIN branches br
+              ON br.branch_id = b.branch_id
+WHERE inspection_next_due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days';
+
+
+-- START OF DATA ANALYST VIEWS
+-- Views for data_analyst role
+-- These views include just minimal data, and excluding as much personal information as possible, since it is not required for analysts to do calculations and statistics
+
+CREATE VIEW
+    vehicle_analyst
+AS
+SELECT vec_id,
+       vec_brand_id,
+       cust_id,
+       vec_model,
+       vec_year,
+       vec_fuel_type
+FROM vehicles;
+
+CREATE VIEW customer_analyst
+AS
+SELECT cust_id,
+       mship_id,
+       mship_start_date,
+       mship_end_date,
+       mship_auto_renew,
+       cust_city -- included for city level groupings if ever required
+FROM customers;
+
+CREATE VIEW staff_analyst
+AS
+SELECT staff_id,
+       branch_id,
+       staff_city
+FROM staff;
+
+CREATE VIEW bay_analyst
+AS
+SELECT bay_id,
+       branch_id,
+       bay_capacity
+FROM bays;
+
+CREATE VIEW branch_analyst
+AS
+SELECT branch_id,
+       branch_code,
+       branch_name,
+       branch_city
+FROM branches;
+
+CREATE VIEW supplier_analyst
+AS
+SELECT sup_id,
+       sup_name,
+       sup_city,
+       is_active
+FROM suppliers;
+
+-- only completed part transfers
+CREATE VIEW part_transfer_analyst
+AS
+SELECT transfer_id,
+       part_id,
+       from_branch_id,
+       to_branch_id,
+       quantity,
+       transfer_date
+FROM part_transfers
+WHERE transfer_status = 'COMPLETED';
+
+CREATE VIEW invoices_analyst
+AS
+SELECT inv_id,
+       booking_id,
+       inv_issue_date,
+       inv_due_date,
+       inv_total,
+       inv_discount,
+       inv_final,
+       inv_status
+FROM invoices;
+
+CREATE VIEW refund_analyst
+AS
+SELECT refund_id,
+       inv_id,
+       refund_amount
+FROM refunds;
+
+CREATE VIEW mot_result_analyst
+AS
+SELECT mot_res_id,
+       booking_id,
+       vec_id,
+       test_date,
+       expiry_date,
+       result
+FROM mot_results;
+
+CREATE VIEW customer_feedback_analyst
+AS
+SELECT cust_fb_id,
+       cust_id,
+       booking_id
+FROM customer_feedbacks;
+
+-- END OF DATA ANALYST VIEWS
+
+-- END OF VIEWS
+
+-- START OF QUERIES
+
+-- QUERY 1
+-- Show MOTs that are either expired, or will expire in the next 7 or 30 days
+-- For identification it includes vehicle reg, customer full name, and customer contact number, as well as the expiry date
+WITH latest_mot AS (SELECT vec_id,
+                           MAX(expiry_date) AS expiry_date
+                    FROM mot_results
+                    WHERE expiry_date <= CURRENT_DATE + INTERVAL '30 days'
+                    GROUP BY vec_id)
+SELECT v.vec_reg                                  AS "Registration",
+       CONCAT_WS(' ', c.cust_fname, c.cust_lname) AS "Customer",
+       c.cust_contact_num                         AS "Contact Number",
+       mt.expiry_date                             AS "Expiry",
+       CASE
+           WHEN mt.expiry_date <= CURRENT_DATE THEN 'EXPIRED'
+           WHEN mt.expiry_date <= CURRENT_DATE + INTERVAL '7 days' THEN 'EXPIRE IN 7 DAYS'
+           WHEN mt.expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'EXPIRE IN 30 DAYS'
+           END                                    AS "Status"
+FROM latest_mot mt
+         JOIN vehicle_safe v USING (vec_id)
+         JOIN customer_safe c USING (cust_id)
+ORDER BY expiry_date DESC,
+         "Status" ASC;
+
+-- END QUERY 1
+-- QUERY 2
+-- performance per branch in the year of 2025
+-- ranking over branches based on total income (includes already paid, and unpaid invoices)
+-- total number of bookings
+-- total income per branch, paid invoices only
+-- % of invoices that are unpaid, compared to total count of invoices per branch
+-- missing (unpaid) invoices in GBP
+-- total jobs completed in the branch
+-- the staff who completed the most number of jobs
+-- the number of jobs completed by that staff,
+-- ordered by the branch rank, from highest to lowest
+WITH filtered_bookings AS (SELECT booking_id,
+                                  branch_id
+                           FROM bookings
+                           WHERE booking_date >= '2025-01-01 '
+                             AND booking_date <= '2025-12-31'),
+     invoice_data AS (SELECT booking_id,
+                             SUM(inv_final) FILTER (WHERE inv_status = 'PAID')  AS paid_inv_final,
+                             SUM(inv_final) FILTER (WHERE inv_status != 'PAID') AS due_inv_final,
+                             COUNT(*)                                           AS total_invoices,
+                             COUNT(*) FILTER (WHERE inv_status != 'PAID')       AS due_count
+                      FROM invoices
+                      GROUP BY booking_id),
+     job_data AS (SELECT bs.booking_id AS booking_id,
+                         COUNT(*)      AS completed_jobs
+                  FROM booking_services bs
+                           JOIN jobs j ON j.booking_service_id = bs.booking_service_id
+                  WHERE j.job_status = 'COMPLETED'
+                    AND j.job_end >= '2025-01-01'
+                    AND j.job_end <= '2025-12-31'
+                  GROUP BY bs.booking_id),
+     staff_data AS (SELECT s.branch_id,
+                           j.staff_id,
+                           COUNT(*) AS staff_jobs_no
+                    FROM jobs j
+                             JOIN staff_safe s USING (staff_id)
+                    WHERE j.job_status = 'COMPLETED'
+                      AND j.job_end >= '2025-01-01'
+                      AND j.job_end <= '2025-12-31'
+                    GROUP BY s.branch_id,
+                             j.staff_id),
+     top_staff AS (SELECT branch_id,
+                          staff_id,
+                          staff_jobs_no
+                   FROM (SELECT branch_id,
+                                staff_id,
+                                staff_jobs_no,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY branch_id
+                                    ORDER BY
+                                        staff_jobs_no DESC
+                                    ) AS rn
+                         FROM staff_data) ranked
+                   WHERE rn = 1)
+SELECT RANK()
+       OVER (ORDER BY SUM(COALESCE(id.paid_inv_final, 0) + COALESCE(id.due_inv_final, 0)) DESC) AS "Branch Total Income Rank",
+       CONCAT_WS(' ', b.branch_code, b.branch_name)                                             AS "Branch",
+       COUNT(DISTINCT fb.booking_id)                                                            AS "No. of Branch Bookings",
+       COALESCE(ROUND(SUM(paid_inv_final), 2), 0)                                               AS "Total Branch Income Paid Invoices (GBP)",
+       CONCAT(COALESCE(ROUND(SUM(id.due_count) * 100.00 / NULLIF(SUM(id.total_invoices), 0), 2), 0),
+              '%')                                                                              AS "Ratio Unpaid Invoices / Total Invoices (%)",
+       COALESCE(ROUND(SUM(id.due_inv_final), 2), 0)                                             AS "Missing Income from Unpaid Invoices (GBP)",
+       COALESCE(SUM(jd.completed_jobs), 0)                                                      AS "Total Completed Branch Jobs",
+       COALESCE(MAX(CONCAT_WS(' ', s.staff_fname, s.staff_lname)),
+                'N/A')                                                                          AS "Most Jobs Completed By",
+       COALESCE(MAX(ts.staff_jobs_no), 0)                                                       AS "Staff Completed Jobs"
+FROM branches b
+         LEFT JOIN filtered_bookings fb ON fb.branch_id = b.branch_id
+         LEFT JOIN invoice_data id ON id.booking_id = fb.booking_id
+         LEFT JOIN job_data jd ON jd.booking_id = fb.booking_id
+         LEFT JOIN top_staff ts ON ts.branch_id = b.branch_id
+         LEFT JOIN staff s ON s.staff_id = ts.staff_id
+GROUP BY b.branch_name,
+         b.branch_code
+ORDER BY "Branch Total Income Rank";
+
+-- Query 3
+SELECT
+    -- Customer Info (cust email and name to send reminders abour mship)
+    c.cust_id                               as id,
+    c.cust_fname || ' ' || c.cust_lname     as name,
+    c.cust_email                            as email,
+    -- Spend Metrics ( check avg price and overall price cust spends)
+    COALESCE(SUM(i.inv_final), 0)           as total_spend,
+    COUNT(DISTINCT b.booking_id)            as visits,
+    ROUND(COALESCE(AVG(i.inv_final), 0), 2) as avg_invoice,
+    -- Last Visit ( check frequency of how often cust comes)
+    MAX(b.booking_date)                     as last_visit,
+    CURRENT_DATE - MAX(b.booking_date)      as days_ago,
+    -- Membership (clear overview of who has one or not )
+    CASE
+        WHEN c.mship_id IS NOT NULL
+            AND c.mship_end_date >= CURRENT_DATE THEN 'ACTIVE'
+        WHEN c.mship_id IS NOT NULL
+            AND c.mship_end_date < CURRENT_DATE THEN 'EXPIRED'
+        ELSE 'NONE'
+        END                                 as mship_status,
+    m.mship_name                            as mship_type,
+    -- Tier (good for checking which customer is spending the most)
+    CASE
+        WHEN COALESCE(SUM(i.inv_final), 0) >= 2000 THEN 'PLATINUM'
+        WHEN COALESCE(SUM(i.inv_final), 0) >= 1000 THEN 'GOLD'
+        WHEN COALESCE(SUM(i.inv_final), 0) >= 500 THEN 'SILVER'
+        ELSE 'BRONZE'
+        END                                 as tier,
+    -- Status ( good for setting up email reminders when at risk or inactive)
+    CASE
+        WHEN MAX(b.booking_date) >= CURRENT_DATE - INTERVAL '90 days' THEN 'ACTIVE'
+        WHEN MAX(b.booking_date) >= CURRENT_DATE - INTERVAL '180 days' THEN 'AT_RISK'
+        WHEN MAX(b.booking_date) IS NOT NULL THEN 'INACTIVE'
+        ELSE 'NEW'
+        END                                 as status,
+    -- Upsell Opportunity (good for receptionists to know so they can sell to customer at appointment)
+    CASE
+        WHEN c.mship_id IS NULL
+            AND COUNT(DISTINCT b.booking_id) >= 3
+            AND COALESCE(SUM(i.inv_final), 0) >= 500 THEN 'YES'
+        ELSE 'NO'
+        END                                 as upsell
+FROM customers c
+         LEFT JOIN vehicles v ON c.cust_id = v.cust_id
+         LEFT JOIN bookings b ON v.vec_id = b.vec_id
+         LEFT JOIN invoices i ON b.booking_id = i.booking_id
+         LEFT JOIN memberships m ON c.mship_id = m.mship_id
+GROUP BY c.cust_id,
+         c.cust_fname,
+         c.cust_lname,
+         c.cust_email,
+         c.cust_contact_num,
+         c.mship_id,
+         c.mship_end_date,
+         m.mship_name
+ORDER BY total_spend DESC;
+
+-- Query 4
+-- Branch Level Workload in the last 30 days
+-- shows the work load of all branche, eg how many avg jobs per staff to see check if someone is being over/underworked
+-- also how many jobs are still to be done and are currently being done
+SELECT b.branch_name,
+       COUNT(DISTINCT s.staff_id)                                                   AS "Total Staff",
+       COUNT(j.job_id)                                                              as "Total Jobs",
+       ROUND(COUNT(j.job_id) :: NUMERIC / NULLIF(COUNT(DISTINCT s.staff_id), 0), 0) as "Average job / staff",
+       COUNT(j.job_id) FILTER (WHERE j.job_status = 'SCHEDULED')                    as "Scheduled Jobs",
+       COUNT(j.job_id) FILTER (WHERE j.job_status = 'IN_PROGRESS')                  as "Active Jobs"
+FROM branches b
+         JOIN staff s ON b.branch_id = s.branch_id
+         LEFT JOIN jobs j ON s.staff_id = j.staff_id
+GROUP BY b.branch_name
+ORDER BY "Total Jobs" DESC;
+
+-- Query 5
+-- a query that displays when a part stock qty is running low, the threshold is set to 10 currently
+SELECT b.branch_code     AS "Branch",
+       p.part_id         AS "Part ID",
+       p.part_name       AS "Part",
+       pc.part_cat_name     "Category",
+       bp.quantity       AS "Quantity",
+       MIN(ps.unit_cost) AS "Lowest Unit Cost",
+       MIN(s.sup_name)   AS "Available Supplier"
+FROM branch_parts bp
+         JOIN parts p ON bp.part_id = p.part_id
+         JOIN part_categories pc ON p.part_cat_id = pc.part_cat_id
+         JOIN part_suppliers ps ON p.part_id = ps.part_id
+         JOIN suppliers s ON ps.sup_id = s.sup_id AND s.is_active = TRUE
+         JOIN branches b ON b.branch_id = bp.branch_id
+WHERE bp.quantity <= 10
+GROUP BY p.part_id, p.part_name, pc.part_cat_name, b.branch_code, bp.quantity
+ORDER BY b.branch_code ASC,
+         bp.quantity ASC,
+         p.part_id ASC;
+
+-- Query 6
+-- A simple example query, that can be run as a data_analyst, using the views they have access to
+-- For each part, find the supplier that supplies it with the lowest unit cost
+SELECT part_id        AS "Part Id",
+       part_name      AS "Part",
+       MIN(unit_cost) AS "Unit Cost £",
+       MAX(sup_name)  AS "Supplier",
+       CASE
+           WHEN BOOL_OR(is_active) THEN 'Supplying'
+           ELSE 'Not supplying'
+           END        AS "Supplying?"
+FROM supplier_analyst
+         JOIN part_suppliers USING (sup_id)
+         JOIN parts USING (part_id)
+GROUP BY part_id,
+         part_name
+ORDER BY part_id;
+
+-- Query 7
+-- Another simple example as a data analyst
+-- Showing the number of bookings, where customer left a feedback
+-- Including percentage
+WITH booking_count_with_feedbacks -- separately count the bookings with feedbacks
+         AS (SELECT COUNT(*) FILTER (
+        WHERE
+        EXISTS (SELECT 1
+                FROM customer_feedback_analyst cfa
+                WHERE cfa.booking_id = b.booking_id)
+        ) as count
+             FROM bookings b),
+     booking_count
+         AS
+             (SELECT COUNT(*) AS count FROM bookings)
+SELECT (SELECT count FROM booking_count)   AS "Total Bookings",
+       (SELECT count
+        FROM booking_count_with_feedbacks) AS "Bookigns with feedbacks",
+       CONCAT(ROUND(((SELECT count FROM booking_count_with_feedbacks) :: NUMERIC / (SELECT count FROM booking_count)) *
+                    100, 2), '%')          AS "Bookings with feedback ratio";
+
+-- calculate percentage
+
+-- END OF QUERIES
+
+-- START OF ROLES
+--
+-- -- roles and permissions
+-- -- passwords are just placeholders, the important parts are roles and permisisons
+-- -- super admin
+-- CREATE USER admin WITH LOGIN SUPERUSER PASSWORD 'admin_1234';
+--
+-- -- general technician role
+-- CREATE ROLE technician;
+--
+-- GRANT SELECT, INSERT, UPDATE ON bookings TO technician;
+-- GRANT SELECT ON booking_packages TO technician;
+-- GRANT SELECT ON booking_services TO technician;
+-- GRANT SELECT, INSERT, UPDATE ON jobs TO technician;
+-- GRANT SELECT ON bays TO technician;
+-- GRANT SELECT ON parts TO technician;
+-- GRANT SELECT ON part_categories TO technician;
+-- GRANT SELECT, INSERT, UPDATE ON branch_parts TO technician;
+-- GRANT SELECT, INSERT ON part_usage TO technician;
+-- GRANT SELECT ON customer_safe TO technician;
+-- GRANT SELECT ON vehicle_safe TO technician;
+-- GRANT SELECT ON staff_safe TO technician;
+-- GRANT SELECT ON service_discounts TO technician;
+-- GRANT SELECT ON staff_schedule TO technician;
+-- GRANT SELECT ON roles TO technician;
+-- GRANT SELECT ON staff_role_detailed TO technician;
+-- GRANT SELECT ON staff_roles TO technician;
+-- GRANT SELECT ON staff_safe TO technician;
+-- GRANT SELECT ON services TO technician;
+-- GRANT SELECT ON cities TO technician;
+-- GRANT SELECT ON vehicles TO technician;
+-- GRANT SELECT ON vehicle_brands TO technician;
+-- GRANT SELECT ON branches TO technician;
+--
+-- -- sequence permissions for technician
+-- GRANT USAGE, SELECT ON SEQUENCE bookings_booking_id_seq TO technician;
+-- GRANT USAGE, SELECT ON SEQUENCE jobs_job_id_seq TO technician;
+--
+--
+-- -- different technician roles
+-- -- they inherit from each other
+-- CREATE ROLE trainee_technician INHERIT;
+-- CREATE ROLE senior_technician INHERIT;
+-- CREATE ROLE master_technician INHERIT;
+--
+-- GRANT technician TO trainee_technician;
+-- GRANT trainee_technician TO senior_technician;
+-- GRANT senior_technician TO master_technician;
+--
+-- -- different privileges based on different technician levels
+--
+-- -- trainee technician has the most limited access
+-- -- they do not have any additional privilege than technician
+-- -- the name trainee_technician is just used for convenience, but has all the same as "technician"
+--
+-- -- senior technician
+-- GRANT DELETE ON bookings TO senior_technician;
+-- GRANT SELECT, INSERT, UPDATE ON invoices TO senior_technician;
+-- GRANT SELECT, INSERT, UPDATE ON installments TO senior_technician;
+-- GRANT ALL ON vehicle_safe TO senior_technician;
+-- GRANT SELECT ON staff_certifications TO senior_technician;
+-- GRANT ALL ON vehicle_brands TO senior_technician;
+--
+--
+-- -- sequence permissions for senior technician
+-- GRANT USAGE, SELECT ON SEQUENCE invoices_inv_id_seq TO senior_technician;
+-- GRANT USAGE, SELECT ON SEQUENCE installments_inst_id_seq TO senior_technician;
+-- GRANT USAGE, SELECT ON SEQUENCE vehicles_vec_id_seq TO senior_technician;
+-- GRANT USAGE, SELECT ON SEQUENCE vehicle_brands_vec_brand_id_seq TO senior_technician;
+--
+-- -- master technician
+-- GRANT ALL ON mot_results TO master_technician;
+-- GRANT ALL ON staff TO master_technician;
+-- GRANT ALL ON customers TO master_technician;
+--
+-- -- sequence permissions for master technician
+-- GRANT USAGE, SELECT ON SEQUENCE mot_results_mot_res_id_seq TO master_technician;
+--
+-- -- owner can see everything, but cannot create new user or database
+-- -- that is the duty of admins
+-- CREATE USER owner WITH SUPERUSER NOCREATEDB NOCREATEROLE LOGIN PASSWORD 'owner_1234';
+--
+-- -- managers leaderships
+-- CREATE ROLE general_manager;
+-- CREATE ROLE human_resources;
+--
+-- -- general manager can do all things a master technician can do
+-- GRANT master_technician TO general_manager;
+--
+-- GRANT ALL ON parts TO general_manager;
+-- GRANT ALL ON part_categories TO general_manager;
+-- GRANT ALL ON part_transfers TO general_manager;
+-- GRANT ALL ON branch_parts TO general_manager;
+-- GRANT ALL ON invoices TO general_manager;
+-- GRANT ALL ON refunds TO general_manager;
+-- GRANT ALL ON staff TO general_manager;
+-- GRANT ALL ON cities TO general_manager;
+-- GRANT ALL ON staff_certifications TO general_manager;
+-- GRANT ALL ON staff_schedule TO general_manager;
+-- GRANT ALL ON mot_results TO general_manager;
+-- GRANT ALL ON customers TO general_manager;
+--
+-- -- sequence permissions for general manager
+-- GRANT USAGE, SELECT ON SEQUENCE parts_part_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE part_categories_part_cat_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE refunds_refund_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE staff_staff_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE cities_city_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE staff_certifications_staff_cert_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE staff_schedule_schedule_id_seq TO general_manager;
+-- GRANT USAGE, SELECT ON SEQUENCE customers_cust_id_seq TO general_manager;
+--
+-- -- human resources
+-- GRANT SELECT ON roles TO human_resources;
+-- GRANT ALL ON staff_roles TO human_resources;
+-- GRANT ALL ON staff TO human_resources;
+-- GRANT ALL ON staff_schedule TO human_resources;
+-- GRANT ALL ON staff_certifications TO human_resources;
+-- GRANT ALL ON branch_managers TO human_resources;
+-- GRANT SELECT ON branches TO human_resources;
+-- GRANT SELECT ON cities to human_resources;
+--
+-- -- sequence permissions for human resources
+-- GRANT USAGE, SELECT ON SEQUENCE staff_staff_id_seq TO human_resources;
+-- GRANT USAGE, SELECT ON SEQUENCE staff_schedule_schedule_id_seq TO human_resources;
+-- GRANT USAGE, SELECT ON SEQUENCE staff_certifications_staff_cert_id_seq TO human_resources;
+-- GRANT USAGE, SELECT ON SEQUENCE branch_managers_branch_man_id_seq TO human_resources;
+--
+--
+-- -- a data analyst needs to only have access to data that they can use to do calculations, so no personal information is required
+-- -- they only need select permissions, as shouldn't modify data at all
+-- CREATE ROLE data_analyst;
+--
+-- GRANT SELECT ON vehicle_analyst TO data_analyst;
+-- GRANT SELECT ON vehicle_brands TO data_analyst;
+-- GRANT SELECT ON customer_analyst TO data_analyst;
+-- GRANT SELECT ON memberships TO data_analyst;
+-- GRANT SELECT ON membership_services TO data_analyst;
+-- GRANT SELECT ON bookings TO data_analyst;
+-- GRANT SELECT ON booking_services TO data_analyst;
+-- GRANT SELECT ON services TO data_analyst;
+-- GRANT SELECT ON service_discounts TO data_analyst;
+-- GRANT SELECT ON additional_services TO data_analyst;
+-- GRANT SELECT ON packages TO data_analyst;
+-- GRANT SELECT ON booking_packages TO data_analyst;
+-- GRANT SELECT ON bay_analyst TO data_analyst;
+-- GRANT SELECT ON branch_analyst TO data_analyst;
+-- GRANT SELECT ON parts TO data_analyst;
+-- GRANT SELECT ON part_categories TO data_analyst;
+-- GRANT SELECT ON branch_parts TO data_analyst;
+-- GRANT SELECT ON part_suppliers TO data_analyst;
+-- GRANT SELECT ON supplier_analyst TO data_analyst;
+-- GRANT SELECT ON cities TO data_analyst;
+-- GRANT SELECT ON part_transfer_analyst TO data_analyst;
+-- GRANT SELECT ON invoices_analyst TO data_analyst;
+-- GRANT SELECT ON refund_analyst TO data_analyst;
+-- GRANT SELECT ON mot_result_analyst TO data_analyst;
+-- GRANT SELECT ON customer_feedback_analyst TO data_analyst;
+--
+--
+-- CREATE ROLE senior_analyst WITH LOGIN PASSWORD 'password123' INHERIT;
+--
+-- GRANT data_analyst TO senior_analyst;
+--
+-- -- END OF ROLES

@@ -1,3 +1,5 @@
+-- START OF VIEWS
+
 -- minimal information about customer, including emergency phone numbers if any
 DROP MATERIALIZED VIEW IF EXISTS customer_safe;
 CREATE MATERIALIZED VIEW IF NOT EXISTS customer_safe
@@ -289,3 +291,5 @@ SELECT cust_fb_id,
 FROM customer_feedbacks;
 
 -- END OF DATA ANALYST VIEWS
+
+-- END OF VIEWS
