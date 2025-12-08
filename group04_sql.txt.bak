@@ -41851,7 +41851,7 @@ FROM customer_feedbacks;
 
 -- END OF VIEWS
 
-SELECT 'End of database insertion, now only the queries will run. Press q to continue!';
+SELECT 'End of database insertion, now only the queries will run. Press q to continue!'
 
 -- START OF QUERIES
 
